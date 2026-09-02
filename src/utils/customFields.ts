@@ -5,10 +5,9 @@
  *
  * 1. READ. A custom field value's `value` is type-dependent, and for `picklist`
  *    fields it is the selected option's *id*, not its label (e.g. "9002"). The
- *    label only arrives if `picklist_option{id,option}` is requested alongside
- *    it. A caller that renders `value` for a picklist shows a meaningless
- *    number, so we expose both: `value` stays raw, `display_value` is what a
- *    human (or a model) should read.
+ *    label arrives when the detail endpoint includes `picklist_option`.
+ *    Clio's list endpoints reject that association, so list projections use
+ *    the core fields while detail projections request the label as well.
  *
  * 2. WRITE. Setting a field that has no value yet and changing one that already
  *    does use *different* shapes. New value: `{custom_field: {id}, value}`.
@@ -20,9 +19,9 @@
  *    caller reads the record first and passes what is already there.
  */
 
-/** The `fields=` sub-selection needed to read custom fields usefully. */
-export const CUSTOM_FIELD_VALUE_FIELDS =
-  "custom_field_values{id,field_name,field_type,value,custom_field{id},picklist_option{id,option}}";
+/** The detail-only projection; Clio documents `picklist_option` on record reads. */
+export const CUSTOM_FIELD_VALUE_DETAIL_FIELDS =
+  "custom_field_values{id,field_name,field_type,value,custom_field{id},picklist_option}";
 
 export interface MappedCustomField {
   /** Composite value-instance id, e.g. "text_line-55001". Needed to update or clear this value. */

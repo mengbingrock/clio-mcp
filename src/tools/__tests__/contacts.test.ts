@@ -76,10 +76,16 @@ describe("search_contacts", () => {
     vi.clearAllMocks();
   });
 
-  it("requests picklist_option so labels are available", async () => {
+  it("omits detail-only custom fields from the collection request", async () => {
     mockClioGet.mockResolvedValue({ data: [MOCK_CONTACT], meta: { records: 1 } });
     await handlers["search_contacts"]({ query: "Acme", limit: 25 });
-    expect(mockClioGet.mock.calls[0][1].fields).toContain("picklist_option{id,option}");
+    expect(mockClioGet.mock.calls[0][1].fields).not.toContain("custom_field_values");
+  });
+
+  it("lists contacts without sending a query when query is omitted", async () => {
+    mockClioGet.mockResolvedValue({ data: [MOCK_CONTACT], meta: { records: 1 } });
+    await handlers["search_contacts"]({ limit: 25 });
+    expect(mockClioGet.mock.calls[0][1]).not.toHaveProperty("query");
   });
 
   it("maps custom fields by name with a resolved picklist label", async () => {
@@ -117,6 +123,8 @@ describe("get_contact", () => {
       },
     });
     const result = await handlers["get_contact"]({ contact_id: 5 }) as any;
+    expect(mockClioGet.mock.calls[0][1].fields).toContain("picklist_option");
+    expect(mockClioGet.mock.calls[0][1].fields).not.toContain("picklist_option{");
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.custom_fields).toEqual([
       { id: "text_line-2", field_id: 2, name: "Intake Status", type: "text_line", value: "Active", display_value: "Active" },

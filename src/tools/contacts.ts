@@ -2,13 +2,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
 import { clioGet, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
-import { CUSTOM_FIELD_VALUE_FIELDS, mapCustomFieldValues } from "../utils/customFields.js";
+import {
+  CUSTOM_FIELD_VALUE_DETAIL_FIELDS,
+  mapCustomFieldValues,
+} from "../utils/customFields.js";
 
 const CONTACT_LIST_FIELDS =
-  `id,name,email_addresses{address,name},phone_numbers{number,name},company{id,name},type,${CUSTOM_FIELD_VALUE_FIELDS}`;
+  "id,name,email_addresses{address,name},phone_numbers{number,name},company{id,name},type";
 
 const CONTACT_DETAIL_FIELDS =
-  `id,name,first_name,last_name,title,email_addresses{address,name},phone_numbers{number,name},company{id,name},type,created_at,updated_at,addresses{name,street,city,province,postal_code,country},${CUSTOM_FIELD_VALUE_FIELDS}`;
+  `id,name,first_name,last_name,title,email_addresses{address,name},phone_numbers{number,name},company{id,name},type,created_at,updated_at,addresses{name,street,city,province,postal_code,country},${CUSTOM_FIELD_VALUE_DETAIL_FIELDS}`;
 
 export function registerContactTools(server: McpServer): void {
   server.registerTool(
@@ -16,14 +19,15 @@ export function registerContactTools(server: McpServer): void {
     {
       description: "Search Clio contacts by name, email, or company",
       inputSchema: {
-        query: z.string().min(1).describe("Search string (name, email, or company)"),
+        query: z.string().min(1).optional().describe("Optional search string (name, email, or company); omit to list contacts"),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1–200)"),
         page_token: z.string().optional().describe("Cursor from a previous search_contacts response to fetch the next page"),
       },
     },
     async ({ query, limit, page_token }) => {
       try {
-        const params: Record<string, string> = { query, fields: CONTACT_LIST_FIELDS, limit: String(limit) };
+        const params: Record<string, string> = { fields: CONTACT_LIST_FIELDS, limit: String(limit) };
+        if (query) params.query = query;
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/contacts.json", params);

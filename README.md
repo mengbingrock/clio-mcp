@@ -366,7 +366,7 @@ Claude selects and calls these tools automatically based on your questions. You 
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `search_contacts` | `query`, `limit`, `page_token` | Searches contacts by name, email, or company; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token`; pass the token back to fetch the next page |
+| `search_contacts` | `query` (optional), `limit`, `page_token` | Lists contacts when `query` is omitted, or searches by name, email, or company; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token`; pass the token back to fetch the next page |
 | `get_contact` | `contact_id` | Returns full detail for a specific contact including all emails, phone numbers, addresses, and custom field values |
 
 ### Relationships (1 tool)

@@ -70,6 +70,12 @@ describe("list_matters", () => {
     vi.clearAllMocks();
   });
 
+  it("omits detail-only custom fields from the collection request", async () => {
+    mockClioGet.mockResolvedValue({ data: [MOCK_MATTER] });
+    await handlers["list_matters"]({ limit: 25 });
+    expect(mockClioGet.mock.calls[0][1].fields).not.toContain("custom_field_values");
+  });
+
   it("returns a JSON result with has_more: false when the page is empty, not a plain-text sentinel", async () => {
     mockClioGet.mockResolvedValue({ data: [], meta: { records: 0, paging: {} } });
     const result = await handlers["list_matters"]({ limit: 25 }) as any;
@@ -312,6 +318,8 @@ describe("get_matter", () => {
       ] },
     });
     const result = await handlers["get_matter"]({ matter_id: 42 }) as any;
+    expect(mockClioGet.mock.calls[0][1].fields).toContain("picklist_option");
+    expect(mockClioGet.mock.calls[0][1].fields).not.toContain("picklist_option{");
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.custom_fields).toEqual([
       { id: "checkbox-2", field_id: 2, name: "Police Report Filed", type: "checkbox", value: true, display_value: true },

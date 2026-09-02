@@ -3,7 +3,7 @@ import {
   mapCustomFieldValues,
   buildCustomFieldWrites,
   customFieldIdsForAudit,
-  CUSTOM_FIELD_VALUE_FIELDS,
+  CUSTOM_FIELD_VALUE_DETAIL_FIELDS,
 } from "../customFields.js";
 
 const PICKLIST = {
@@ -23,13 +23,13 @@ const TEXT = {
   custom_field: { id: 55001 },
 };
 
-describe("CUSTOM_FIELD_VALUE_FIELDS", () => {
-  it("asks for everything needed to read a field without a second call", () => {
-    // Without picklist_option a picklist reads back as a bare option id, and
-    // without field_type the caller cannot tell a currency from a text field.
-    for (const part of ["field_name", "field_type", "value", "picklist_option{id,option}"]) {
-      expect(CUSTOM_FIELD_VALUE_FIELDS).toContain(part);
+describe("CUSTOM_FIELD_VALUE_DETAIL_FIELDS", () => {
+  it("requests the fields and picklist label supported by detail reads", () => {
+    for (const part of ["field_name", "field_type", "value"]) {
+      expect(CUSTOM_FIELD_VALUE_DETAIL_FIELDS).toContain(part);
     }
+    expect(CUSTOM_FIELD_VALUE_DETAIL_FIELDS).toContain("picklist_option");
+    expect(CUSTOM_FIELD_VALUE_DETAIL_FIELDS).not.toContain("picklist_option{");
   });
 });
 

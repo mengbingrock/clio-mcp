@@ -3,17 +3,17 @@ import z from "zod";
 import { clioGet, clioPost, clioPatch, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 import {
-  CUSTOM_FIELD_VALUE_FIELDS,
+  CUSTOM_FIELD_VALUE_DETAIL_FIELDS,
   mapCustomFieldValues,
   buildCustomFieldWrites,
   customFieldIdsForAudit,
 } from "../utils/customFields.js";
 
 const MATTER_LIST_FIELDS =
-  `id,display_number,description,status,client{id,name},practice_area{id,name},open_date,close_date,${CUSTOM_FIELD_VALUE_FIELDS}`;
+  "id,display_number,description,status,client{id,name},practice_area{id,name},open_date,close_date";
 
 const MATTER_DETAIL_FIELDS =
-  `id,display_number,description,status,client{id,name},practice_area{id,name},open_date,close_date,billable,maildrop_address,${CUSTOM_FIELD_VALUE_FIELDS}`;
+  `id,display_number,description,status,client{id,name},practice_area{id,name},open_date,close_date,billable,maildrop_address,${CUSTOM_FIELD_VALUE_DETAIL_FIELDS}`;
 
 const CUSTOM_FIELD_VALUE_SCHEMA = z.object({
   custom_field_id: z.number().int().positive().describe("Clio custom field definition ID (see list_custom_fields)"),
@@ -267,7 +267,7 @@ export function registerMatterTools(server: McpServer): void {
           // Clio addresses an existing custom field value by its own composite id
           // and a brand-new one by the field definition id. Which shape applies is
           // a property of the record, not of the request, so read before writing.
-          const current = await clioGet(`/matters/${matter_id}.json`, { fields: `id,${CUSTOM_FIELD_VALUE_FIELDS}` });
+          const current = await clioGet(`/matters/${matter_id}.json`, { fields: `id,${CUSTOM_FIELD_VALUE_DETAIL_FIELDS}` });
           matterData["custom_field_values"] = buildCustomFieldWrites(
             custom_field_values,
             mapCustomFieldValues(current?.data?.custom_field_values)
