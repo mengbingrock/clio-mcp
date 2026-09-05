@@ -5,7 +5,7 @@
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, contacts, documents, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 36 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only: no relay server, no cloud middleman. MIT license, free forever.
+> **TL;DR:** 39 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only: no relay server, no cloud middleman. MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -402,13 +402,16 @@ Claude selects and calls these tools automatically based on your questions. You 
 | `update_task` | `task_id`, `name`, `description`, `priority`, `due_at`, `due_date` (legacy), `status`, `assignee_id`, `time_estimated`, `notify_assignee`, `notify_completion`, `permission` (private/public) | Updates one or more fields; `due_at` requires an explicit time-zone offset |
 | `complete_task` | `task_id` | Marks a task as complete |
 
-### Calendar (3 tools)
+### Calendar (6 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
 | `list_calendars` | none | Lists calendars the user can write to; use the returned `id` as `calendar_owner_id` when creating entries |
-| `list_calendar_entries` | `from`, `to`, `limit`, `page_token` | Lists calendar entries within a date range (YYYY-MM-DD or YYYY-MM-DDTHH:MM); returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
-| `create_calendar_entry` | `summary`, `start_at`, `end_at`, `calendar_owner_id`, `description`, `all_day`, `matter_id`, `location`, `send_email_notification`, `attendee_ids` | Creates a calendar entry (hearing, deadline, meeting); `start_at`/`end_at` accept date or datetime |
+| `list_calendar_entries` | `from`, `to`, `calendar_id`, `matter_id`, `limit`, `page_token` | Lists calendar entries in an explicit timestamp range, optionally filtered by calendar or matter |
+| `get_calendar_entry` | `calendar_entry_id` | Returns complete detail for one calendar entry, including timezone, owner, matter, attendees, reminders, and recurrence |
+| `create_calendar_entry` | `summary`, `start_at`, `end_at`, `calendar_owner_id`, `description`, `all_day`, `matter_id`, `location`, `send_email_notification`, `attendee_ids` | Creates a calendar entry; timestamps require an explicit offset or `Z` and are normalized to UTC |
+| `update_calendar_entry` | `calendar_entry_id`, `summary`, `start_at`, `end_at`, `calendar_owner_id`, `description`, `all_day`, `matter_id`, `location`, `send_email_notification`, `attendee_ids` | Updates or reschedules an entry; timestamps require an explicit offset or `Z` and are normalized to UTC |
+| `delete_calendar_entry` | `calendar_entry_id` | Permanently deletes one calendar entry |
 
 ### Time entries (3 tools)
 

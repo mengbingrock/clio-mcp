@@ -173,6 +173,15 @@ export async function clioPatch(path: string, body: unknown): Promise<any> {
   return text.trim() ? JSON.parse(text) : {};
 }
 
+export async function clioDelete(path: string): Promise<void> {
+  const token = await resolveAccessToken();
+  const url = new URL(`${getBase()}${path}`);
+  await clioFetch(url.toString(), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  });
+}
+
 export function extractNextPageToken(meta: any): string | null {
   const nextUrl = meta?.paging?.next;
   if (!nextUrl) return null;

@@ -12,7 +12,7 @@ vi.mock("../clioRegion.js", () => ({
   getClioApiBaseUrl: vi.fn().mockReturnValue("https://app.clio.com/api/v4"),
 }));
 
-import { clioGet, clioGetAllPages, ClioApiError } from "../clioClient.js";
+import { clioDelete, clioGet, clioGetAllPages, ClioApiError } from "../clioClient.js";
 
 function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<string, string> }) {
   return new Response(JSON.stringify(body), {
@@ -66,6 +66,29 @@ describe("clioGetAllPages", () => {
     );
 
     await expect(clioGetAllPages("/folders.json", { matter_id: "42" }, { maxPages: 2 })).rejects.toThrow(/exceeded maxPages/);
+  });
+});
+
+describe("clioDelete", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends an authenticated DELETE request and accepts a 204 response", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await expect(clioDelete("/calendar_entries/123.json")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://app.clio.com/api/v4/calendar_entries/123.json",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ Authorization: "Bearer test-token" }),
+      }),
+    );
   });
 });
 
