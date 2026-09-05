@@ -5,7 +5,7 @@
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, contacts, documents, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 29 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only: no relay server, no cloud middleman. MIT license, free forever.
+> **TL;DR:** 35 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only: no relay server, no cloud middleman. MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -375,13 +375,14 @@ Claude selects and calls these tools automatically based on your questions. You 
 |---|---|---|
 | `list_matter_relationships` | `matter_id`, `limit`, `page_token` | Lists the contacts attached to a matter and the role each plays (co-counsel, expert, fact witness, opposing counsel) |
 
-### Documents (3 tools)
+### Documents (4 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
 | `list_documents` | `matter_id`, `parent_id`, `query`, `limit`, `page_token` | Lists or full-text searches documents; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
-| `get_document` | `document_id` | Returns document metadata and a direct download URL |
-| `upload_document` | `file_path`, `matter_id`, `name`, `content_type` | Uploads a local file to a matter using Clio's multipart S3 upload flow |
+| `get_document` | `document_id` | Returns document metadata, its actual parent folder, and a direct download URL |
+| `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root or a verified folder using Clio's multipart S3 upload flow, then reads back the actual parent |
+| `update_document` | `document_id`, `name`, `matter_id`, `folder_id` | Renames and/or moves a document; a target folder is verified against the target matter before the move, and the actual parent is read back afterward |
 
 ### Folders (3 tools)
 

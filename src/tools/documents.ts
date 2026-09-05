@@ -6,10 +6,54 @@ import crypto from "crypto";
 import { clioGet, clioPost, clioPut, clioPatch, getClioBaseUrl, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 
-const DOCUMENT_LIST_FIELDS = "id,name,content_type,size,created_at,matter{id,display_number}";
+const DOCUMENT_PARENT_FIELDS = "parent{id,type,name},matter{id,display_number}";
+
+const DOCUMENT_LIST_FIELDS =
+  `id,name,content_type,size,created_at,${DOCUMENT_PARENT_FIELDS}`;
 
 const DOCUMENT_DETAIL_FIELDS =
-  "id,name,content_type,size,created_at,matter{id,display_number},latest_document_version{uuid,created_at,size}";
+  `id,name,content_type,size,created_at,${DOCUMENT_PARENT_FIELDS},latest_document_version{uuid,created_at,size}`;
+
+const FOLDER_VERIFY_FIELDS = "id,name,parent{id,type},matter{id,display_number}";
+
+type DocumentParentRef = { id: number; type: "Matter" | "Folder" };
+
+function mapDocumentParent(document: any): {
+  parent: { id: number; type: string; name: string | null } | null;
+  parent_folder: { id: number; name: string | null } | null;
+} {
+  const parent = document?.parent
+    ? {
+        id: document.parent.id,
+        type: document.parent.type,
+        name: document.parent.name ?? null,
+      }
+    : null;
+  return {
+    parent,
+    parent_folder: parent?.type === "Folder" ? { id: parent.id, name: parent.name } : null,
+  };
+}
+
+async function resolveDocumentParent(matterId: number, folderId?: number): Promise<DocumentParentRef> {
+  if (!folderId) return { id: matterId, type: "Matter" };
+
+  const response = await clioGet(`/folders/${folderId}.json`, { fields: FOLDER_VERIFY_FIELDS });
+  const folder = response?.data;
+  const folderMatterId = Number(folder?.matter?.id);
+  if (!folder || !Number.isSafeInteger(folderMatterId)) {
+    throw new Error(`Cannot verify that folder ${folderId} belongs to matter ${matterId}.`);
+  }
+  if (folderMatterId !== matterId) {
+    throw new Error(`Folder ${folderId} belongs to matter ${folderMatterId}, not matter ${matterId}.`);
+  }
+
+  return { id: folderId, type: "Folder" };
+}
+
+function parentMatches(actual: any, expected: DocumentParentRef): boolean {
+  return Number(actual?.id) === expected.id && actual?.type === expected.type;
+}
 
 const PART_SIZE = 10 * 1024 * 1024; // 10 MB — above S3's 5 MB minimum
 const MAX_PARTS_PER_REQUEST = 50;
@@ -116,6 +160,7 @@ export function registerDocumentTools(server: McpServer): void {
             size: d.size,
             created_at: d.created_at,
             matter: d.matter ? { id: d.matter.id, display_number: d.matter.display_number } : null,
+            ...mapDocumentParent(d),
           })),
           total_count: data.meta?.records ?? docs.length,
           has_more: nextPageToken !== null,
@@ -161,6 +206,7 @@ export function registerDocumentTools(server: McpServer): void {
           size: doc.size,
           created_at: doc.created_at,
           matter: doc.matter ? { id: doc.matter.id, display_number: doc.matter.display_number } : null,
+          ...mapDocumentParent(doc),
           latest_version_uuid: versionUuid,
           download_url,
         };
@@ -182,16 +228,19 @@ export function registerDocumentTools(server: McpServer): void {
   server.registerTool(
     "upload_document",
     {
-      description: "Upload a local file to a Clio matter as a document",
+      description:
+        "Upload a local file to a Clio matter root or a verified folder in that matter, then read back the actual parent",
       inputSchema: {
         file_path: z.string().describe("Absolute path to the local file to upload"),
         matter_id: z.number().int().positive().describe("Clio matter ID to attach the document to"),
+        folder_id: z.number().int().positive().optional().describe("Optional target folder ID; the folder must belong to matter_id"),
         name: z.string().optional().describe("Document name in Clio; defaults to the file's basename"),
         content_type: z.string().optional().describe("MIME type; auto-detected from extension if omitted"),
       },
     },
-    async ({ file_path, matter_id, name, content_type }) => {
+    async ({ file_path, matter_id, folder_id, name, content_type }) => {
       try {
+        const targetParent = await resolveDocumentParent(matter_id, folder_id);
         const stats = await fs.stat(file_path);
         const totalSize = stats.size;
         const originalExt = path.extname(file_path);
@@ -218,7 +267,7 @@ export function registerDocumentTools(server: McpServer): void {
           {
             data: {
               name: docName,
-              parent: { id: matter_id, type: "Matter" },
+              parent: targetParent,
               content_type: mime,
               multiparts: firstBatch.map(({ part_number, content_length, content_md5 }) => ({
                 part_number, content_length, content_md5,
@@ -264,9 +313,12 @@ export function registerDocumentTools(server: McpServer): void {
           data: { uuid, fully_uploaded: "true" },
         });
 
+        const readback = (await clioGet(`/documents/${docId}.json`, { fields: DOCUMENT_DETAIL_FIELDS })).data;
+        const actualParent = mapDocumentParent(readback);
+
         await appendAuditLog({
           tool: "upload_document",
-          args: { file_path, matter_id, name: docName },
+          args: { file_path, matter_id, folder_id, name: docName },
           outcome: "success",
           matter_id,
         });
@@ -274,16 +326,112 @@ export function registerDocumentTools(server: McpServer): void {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({ document_id: docId, name: docName, uuid, parts: allParts.length }, null, 2),
+            text: JSON.stringify({
+              document_id: docId,
+              name: readback?.name ?? docName,
+              uuid,
+              parts: allParts.length,
+              matter: readback?.matter
+                ? { id: readback.matter.id, display_number: readback.matter.display_number }
+                : null,
+              requested_parent: targetParent,
+              ...actualParent,
+              parent_verified: parentMatches(readback?.parent, targetParent),
+            }, null, 2),
           }],
         };
       } catch (err: any) {
         await appendAuditLog({
           tool: "upload_document",
-          args: { file_path, matter_id },
+          args: { file_path, matter_id, folder_id },
           outcome: "error",
           error_message: err.message,
           matter_id,
+        });
+        return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_document",
+    {
+      description:
+        "Rename a Clio document and/or move it to a matter root or a verified folder, then read back its actual parent",
+      inputSchema: {
+        document_id: z.number().int().positive().describe("Clio document ID to update"),
+        name: z.string().min(1).optional().describe("New document name"),
+        matter_id: z.number().int().positive().optional().describe("Target matter ID; without folder_id, moves the document to the matter root"),
+        folder_id: z.number().int().positive().optional().describe("Target folder ID; requires matter_id so folder ownership can be verified"),
+      },
+    },
+    async ({ document_id, name, matter_id, folder_id }) => {
+      if (name === undefined && matter_id === undefined && folder_id === undefined) {
+        return {
+          content: [{ type: "text", text: "Error: provide name and/or a target matter_id" }],
+          isError: true,
+        };
+      }
+      if (folder_id !== undefined && matter_id === undefined) {
+        return {
+          content: [{ type: "text", text: "Error: folder_id requires matter_id so the folder can be verified" }],
+          isError: true,
+        };
+      }
+
+      try {
+        const requestedParent = matter_id !== undefined
+          ? await resolveDocumentParent(matter_id, folder_id)
+          : null;
+        const data: Record<string, unknown> = {};
+        if (name !== undefined) data.name = name;
+        if (requestedParent) data.parent = requestedParent;
+
+        await clioPatch(`/documents/${document_id}.json`, { data });
+        const readback = (await clioGet(`/documents/${document_id}.json`, { fields: DOCUMENT_DETAIL_FIELDS })).data;
+        const actualParent = mapDocumentParent(readback);
+
+        await appendAuditLog({
+          tool: "update_document",
+          args: {
+            document_id,
+            matter_id,
+            folder_id,
+            renamed: name !== undefined,
+            moved: requestedParent !== null,
+          },
+          outcome: "success",
+          ...(matter_id && { matter_id }),
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              document_id: readback.id,
+              name: readback.name,
+              matter: readback.matter
+                ? { id: readback.matter.id, display_number: readback.matter.display_number }
+                : null,
+              requested_parent: requestedParent,
+              ...actualParent,
+              parent_verified: requestedParent ? parentMatches(readback.parent, requestedParent) : null,
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        await appendAuditLog({
+          tool: "update_document",
+          args: {
+            document_id,
+            matter_id,
+            folder_id,
+            renamed: name !== undefined,
+            moved: matter_id !== undefined,
+          },
+          outcome: "error",
+          error_message: err.message,
+          ...(matter_id && { matter_id }),
         });
         return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
       }
