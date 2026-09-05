@@ -5,7 +5,7 @@
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, contacts, documents, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 35 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only: no relay server, no cloud middleman. MIT license, free forever.
+> **TL;DR:** 36 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only: no relay server, no cloud middleman. MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -392,13 +392,14 @@ Claude selects and calls these tools automatically based on your questions. You 
 | `folder_exists` | `matter_id` or `parent_folder_id`, `name` | Checks whether a folder with the given exact name already exists; fully paginates and never relies on parent-type filtering, so it won't miss folders whose matter's document root is itself a Folder node |
 | `create_folder` | `name`, `matter_id` or `parent_folder_id`, `if_not_exists` | Creates a folder at a matter's document root or under an existing folder; call `folder_exists` first to avoid duplicates |
 
-### Tasks (4 tools)
+### Tasks (5 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_tasks` | `matter_id`, `status` (Pending/Complete/In Progress/In Review/Draft), `due_date_start`, `due_date_end`, `limit` | Lists tasks with optional filters |
-| `create_task` | `matter_id`, `name`, `description`, `priority` (High/Normal/Low), `due_date`, `assignee_id` | Creates a task on a matter; priority defaults to Normal |
-| `update_task` | `task_id`, `name`, `description`, `priority`, `due_date`, `status`, `assignee_id` | Updates one or more fields on an existing task |
+| `list_tasks` | `matter_id`, `status` (Pending/Complete/In Progress/In Review/Draft), `due_date_start`, `due_date_end`, `limit`, `page_token` | Lists tasks with optional filters and preserves the complete `due_at` value |
+| `get_task` | `task_id` | Returns complete task detail, including description, `due_at`, time estimate, notification setting, visibility, associations, and reminders |
+| `create_task` | `matter_id`, `name`, `description`, `priority` (High/Normal/Low), `due_at`, `due_date` (legacy), `assignee_id`, `time_estimated`, `notify_assignee`, `notify_completion`, `permission` (private/public) | Creates a task; `due_at` requires an explicit time-zone offset, and `time_estimated` is in minutes |
+| `update_task` | `task_id`, `name`, `description`, `priority`, `due_at`, `due_date` (legacy), `status`, `assignee_id`, `time_estimated`, `notify_assignee`, `notify_completion`, `permission` (private/public) | Updates one or more fields; `due_at` requires an explicit time-zone offset |
 | `complete_task` | `task_id` | Marks a task as complete |
 
 ### Calendar (3 tools)
