@@ -165,7 +165,7 @@ export function registerCalendarTools(server: McpServer): void {
     },
     async ({ limit, page_token }) => {
       try {
-        const params: Record<string, string> = { writeable: "true", fields: "id,name,type,color", limit: String(limit) };
+        const params: Record<string, string> = { writeable: "true", fields: "id,name,type,color,permission,visible", limit: String(limit) };
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/calendars.json", params);
@@ -185,6 +185,8 @@ export function registerCalendarTools(server: McpServer): void {
             name: c.name,
             type: c.type ?? null,
             color: c.color ?? null,
+            permission: c.permission ?? null,
+            visible: c.visible ?? null,
           })),
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,

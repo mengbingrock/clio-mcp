@@ -164,7 +164,7 @@ describe("get_calendar_entry", () => {
   });
 });
 
-const FAKE_CALENDAR = { id: 7, name: "Firm Calendar", type: "UserCalendar", color: "#ff0000" };
+const FAKE_CALENDAR = { id: 7, name: "Firm Calendar", type: "UserCalendar", color: "#ff0000", permission: "owner", visible: true };
 
 describe("list_calendars", () => {
   let handlers: Record<string, Function>;
@@ -181,6 +181,7 @@ describe("list_calendars", () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.has_more).toBe(false);
     expect(parsed.next_page_token).toBeNull();
+    expect(parsed.calendars[0]).toMatchObject({ permission: "owner", visible: true });
   });
 
   it("returns has_more: true and the extracted token when a next page cursor is present", async () => {

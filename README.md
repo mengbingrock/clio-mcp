@@ -406,7 +406,7 @@ Claude selects and calls these tools automatically based on your questions. You 
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_calendars` | none | Lists calendars the user can write to; use the returned `id` as `calendar_owner_id` when creating entries |
+| `list_calendars` | `limit`, `page_token` | Lists calendars the user can write to, including permission and visibility; use an owner/editor calendar `id` as `calendar_owner_id` when creating entries |
 | `list_calendar_entries` | `from`, `to`, `calendar_id`, `matter_id`, `limit`, `page_token` | Lists calendar entries in an explicit timestamp range, optionally filtered by calendar or matter |
 | `get_calendar_entry` | `calendar_entry_id` | Returns complete detail for one calendar entry, including timezone, owner, matter, attendees, reminders, and recurrence |
 | `create_calendar_entry` | `summary`, `start_at`, `end_at`, `calendar_owner_id`, `description`, `all_day`, `matter_id`, `location`, `send_email_notification`, `attendee_ids` | Creates a calendar entry; timestamps require an explicit offset or `Z` and are normalized to UTC |
