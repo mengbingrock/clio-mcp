@@ -15,7 +15,7 @@ import { registerAuthTools } from "../../auth/authTools.js";
 /** Free-text argument names that must never be allowlisted for any tool. */
 const FREE_TEXT_KEYS = [
   "query", "description", "name", "note", "subject", "body", "summary",
-  "location", "reference", "client_reference", "file_path",
+  "location", "reference", "client_reference", "file_path", "picklist_options",
 ];
 
 /** Capture every tool's real inputSchema keys by running the registrars against a fake server. */

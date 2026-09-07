@@ -1,14 +1,32 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
-import { clioGet, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
+import { clioGet, clioGetWithFieldFallback, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
-import { CUSTOM_FIELD_VALUE_FIELDS, mapCustomFieldValues } from "../utils/customFields.js";
+import {
+  CUSTOM_FIELD_VALUE_FIELDS,
+  CUSTOM_FIELD_STRIPPED_WARNING,
+  MappedCustomField,
+  mapCustomFieldValues,
+  resolvePicklistLabelsFor,
+  hasStrippedCustomFieldValues,
+} from "../utils/customFields.js";
 
-const CONTACT_LIST_FIELDS =
-  `id,name,email_addresses{address,name},phone_numbers{number,name},company{id,name},type,${CUSTOM_FIELD_VALUE_FIELDS}`;
+/** Everything except the custom field expansion, which is what a `fields` fallback drops. */
+const CONTACT_LIST_BASE_FIELDS =
+  "id,name,email_addresses{address,name},phone_numbers{number,name},company{id,name},type";
+const CONTACT_LIST_FIELDS = `${CONTACT_LIST_BASE_FIELDS},${CUSTOM_FIELD_VALUE_FIELDS}`;
 
-const CONTACT_DETAIL_FIELDS =
-  `id,name,first_name,last_name,title,email_addresses{address,name},phone_numbers{number,name},company{id,name},type,created_at,updated_at,addresses{name,street,city,province,postal_code,country},${CUSTOM_FIELD_VALUE_FIELDS}`;
+const CONTACT_DETAIL_BASE_FIELDS =
+  "id,name,first_name,last_name,title,email_addresses{address,name},phone_numbers{number,name},company{id,name},type,created_at,updated_at,addresses{name,street,city,province,postal_code,country}";
+const CONTACT_DETAIL_FIELDS = `${CONTACT_DETAIL_BASE_FIELDS},${CUSTOM_FIELD_VALUE_FIELDS}`;
+
+/** Warnings that belong on a contact response, given what came back on it. */
+async function customFieldNotes(groups: MappedCustomField[][]): Promise<Record<string, string>> {
+  await resolvePicklistLabelsFor(groups, "Contact");
+  return groups.some(hasStrippedCustomFieldValues)
+    ? { custom_fields_warning: CUSTOM_FIELD_STRIPPED_WARNING }
+    : {};
+}
 
 export function registerContactTools(server: McpServer): void {
   server.registerTool(
@@ -26,7 +44,11 @@ export function registerContactTools(server: McpServer): void {
         const params: Record<string, string> = { query, fields: CONTACT_LIST_FIELDS, limit: String(limit) };
         if (page_token) params["page_token"] = page_token;
 
-        const data = await clioGet("/contacts.json", params);
+        const { body: data, fields_warning } = await clioGetWithFieldFallback(
+          "/contacts.json",
+          params,
+          CONTACT_LIST_BASE_FIELDS
+        );
         const contacts = data.data as any[];
         const nextPageToken = contacts.length >= limit ? extractNextPageToken(data.meta) : null;
 
@@ -36,19 +58,24 @@ export function registerContactTools(server: McpServer): void {
           return { content: [{ type: "text", text: "No contacts found." }] };
         }
 
+        const customFields = contacts.map((c) => mapCustomFieldValues(c.custom_field_values));
+        const notes = await customFieldNotes(customFields);
+
         const result = {
-          contacts: contacts.map((c) => ({
+          contacts: contacts.map((c, i) => ({
             id: c.id,
             name: c.name,
             email: c.email_addresses?.[0]?.address ?? null,
             phone: c.phone_numbers?.[0]?.number ?? null,
             company: c.company?.name ?? null,
             type: c.type,
-            custom_fields: mapCustomFieldValues(c.custom_field_values),
+            custom_fields: customFields[i],
           })),
           total_count: data.meta?.records ?? contacts.length,
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,
+          ...notes,
+          ...(fields_warning && { fields_warning }),
         };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -69,8 +96,15 @@ export function registerContactTools(server: McpServer): void {
     },
     async ({ contact_id }) => {
       try {
-        const data = await clioGet(`/contacts/${contact_id}.json`, { fields: CONTACT_DETAIL_FIELDS });
+        const { body: data, fields_warning } = await clioGetWithFieldFallback(
+          `/contacts/${contact_id}.json`,
+          { fields: CONTACT_DETAIL_FIELDS },
+          CONTACT_DETAIL_BASE_FIELDS
+        );
         const c = data.data;
+
+        const customFields = mapCustomFieldValues(c.custom_field_values);
+        const notes = await customFieldNotes([customFields]);
 
         const result = {
           id: c.id,
@@ -92,7 +126,9 @@ export function registerContactTools(server: McpServer): void {
           })),
           created_at: c.created_at,
           updated_at: c.updated_at,
-          custom_fields: mapCustomFieldValues(c.custom_field_values),
+          custom_fields: customFields,
+          ...notes,
+          ...(fields_warning && { fields_warning }),
         };
 
         await appendAuditLog({ tool: "get_contact", args: { contact_id }, outcome: "success" });

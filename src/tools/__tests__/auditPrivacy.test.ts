@@ -14,6 +14,15 @@
  */
 import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 
+// The registry pulls in authTools -> tokenStorage -> the native keyring binding.
+vi.mock("@napi-rs/keyring", () => ({
+  Entry: class {
+    getPassword() { return null; }
+    setPassword() {}
+    deletePassword() {}
+  },
+}));
+
 const { mockClioGet, mockClioPost, mockClioPatch, mockClioGetAllPages, mockAppendAuditLog, MockClioApiError } =
   vi.hoisted(() => {
     class MockClioApiError extends Error {
@@ -151,5 +160,95 @@ describe("audit log never records client data", () => {
     const registered = Object.keys(handlers);
     const missing = registered.filter((t) => !audited.has(t));
     expect(missing, `add these tools to CASES: ${missing.join(", ")}`).toEqual([]);
+  });
+});
+
+
+/**
+ * The sweep above is a hand-written list, and a hand-written list is exactly
+ * what a new tool slips past: a tool added without a CASES entry is simply not
+ * swept, and CI stays green. This one takes every tool the registry actually
+ * exposes, builds arguments straight from its own inputSchema with a canary in
+ * every string it accepts, and calls it. Nothing to remember to update.
+ */
+describe("audit sweep covers every registered tool", () => {
+  const schemas: Record<string, Record<string, any>> = {};
+  const allHandlers: Record<string, Function> = {};
+
+  beforeAll(async () => {
+    const { REGISTRARS } = await import("../index.js");
+    const captureServer = {
+      registerTool: (name: string, config: any, handler: Function) => {
+        schemas[name] = config?.inputSchema ?? {};
+        allHandlers[name] = handler;
+      },
+      registerResource: () => {},
+    };
+    for (const r of REGISTRARS) r(captureServer as any);
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClioGet.mockResolvedValue({ data: { id: 42, custom_field_values: [] }, meta: { records: 0 } });
+    mockClioGetAllPages.mockResolvedValue([]);
+    mockClioPost.mockResolvedValue({ data: { id: 1 } });
+    mockClioPatch.mockResolvedValue({ data: { id: 42 } });
+  });
+
+  /** First value this schema accepts, canary first so every string carries one. */
+  function sampleFor(schema: any, withCanary: boolean): unknown {
+    const candidates: unknown[] = withCanary
+      ? [CANARIES[0], 1, true, "2026-01-01", "2026-01-01T00:00:00Z"]
+      : [1, true, "2026-01-01", "2026-01-01T00:00:00Z", "x"];
+    for (const option of schema?.options ?? schema?._def?.values ?? []) candidates.unshift(option);
+    for (const candidate of candidates) {
+      try {
+        if (schema?.safeParse?.(candidate)?.success) return candidate;
+      } catch { /* not a zod schema we can sample */ }
+    }
+    return undefined;
+  }
+
+  async function argsFor(tool: string): Promise<Record<string, unknown>> {
+    const { AUDIT_ARG_ALLOWLIST } = await import("../../utils/auditLog.js");
+    // Allowlisted keys are pass-through by design (ids, limits, enums, opaque
+    // page tokens) and are reviewed by auditRedaction.test.ts, which separately
+    // refuses to let a free-text key onto any allowlist. What this sweep guards
+    // is everything else: an argument nobody thought about must be redacted.
+    const allowed = new Set(AUDIT_ARG_ALLOWLIST[tool] ?? []);
+    const args: Record<string, unknown> = {};
+    for (const [key, schema] of Object.entries(schemas[tool] ?? {})) {
+      const value = allowed.has(key) ? sampleFor(schema, false) : sampleFor(schema, true);
+      if (value !== undefined) args[key] = value;
+    }
+    return args;
+  }
+
+  it("registers a handler for every tool the registry declares", async () => {
+    const { TOOL_META } = await import("../index.js");
+    const { AUTH_TOOLS } = await import("../index.js");
+    for (const tool of Object.keys(TOOL_META)) {
+      if (AUTH_TOOLS.has(tool)) continue; // no arguments, no client data
+      expect(allHandlers[tool], `no registrar produced "${tool}"`).toBeDefined();
+    }
+  });
+
+  it("no tool logs a canary passed through its own inputSchema", async () => {
+    for (const [tool, handler] of Object.entries(allHandlers)) {
+      vi.clearAllMocks();
+      mockClioGet.mockResolvedValue({ data: { id: 42, custom_field_values: [] }, meta: { records: 0 } });
+      mockClioGetAllPages.mockResolvedValue([]);
+      mockClioPost.mockResolvedValue({ data: { id: 1 } });
+      mockClioPatch.mockResolvedValue({ data: { id: 42 } });
+
+      // A tool that rejects the sampled arguments still logs on the error path,
+      // which is the path most likely to log carelessly.
+      try { await handler(await argsFor(tool)); } catch { /* the log is what is under test */ }
+
+      const logged = loggedText();
+      for (const canary of CANARIES) {
+        expect(logged, `${tool} leaked ${canary} into the audit log`).not.toContain(canary);
+      }
+    }
   });
 });

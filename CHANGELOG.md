@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-09-07
+
+A hotfix. 2.2.0 could not read a matter or a contact at all, and it was the
+default install for five days.
+
+### Fixed
+- **Every matter and contact read returned a Clio 400.** `list_matters`,
+  `get_matter`, `search_contacts`, `get_contact` and the read-back inside
+  `create_matter` and `update_matter` all embed one shared `fields` string, and
+  that string asked for `custom_field_values{...,custom_field{id},picklist_option{id,option}}`.
+  Clio does not accept a second level of brace nesting there and answered
+  `400 ... picklist_option} is not a valid field` for the whole request. Both
+  associations are now requested bare. Reported by a firm running 2.2.0 against
+  a live account on the day it shipped, with the cause correctly diagnosed;
+  thank you.
+- **A picklist can no longer be shown as its option id.** Clio returns the
+  selected option's id in `value`, and whether the label arrives alongside it
+  depends on behaviour we cannot verify without a live account. So the label is
+  taken from the response when it is there, otherwise from one read of the field
+  definitions, and if neither works `display_value` is `null` with
+  `label_unresolved: true` rather than a number a lawyer has never seen. The
+  definitions are read once per response, only when something needs it, and are
+  deliberately not cached across calls because the HTTP transport is
+  multi-tenant.
+- **A rejected `fields` string now costs one column instead of the connector.**
+  Reads retry once without the optional expansions and return a
+  `fields_warning` saying the missing fields are missing rather than empty.
+  Reads that feed a write keep failing loudly, because silently dropping the
+  expansion there would change what gets written.
+- **Custom field values that come back stripped are now called out.** On some
+  accounts Clio returns the value's id with `name`, `type` and `value` all null
+  and no error, and the same accounts get a 403 from `/custom_fields.json`.
+  Responses carry a `custom_fields_warning`, and `list_custom_fields` explains
+  the 403 instead of passing Clio's wording through on its own. The cause is
+  **not confirmed** and the README says so; if you hit it, please open an issue.
+- **`matter_activity_summary` fails with advice instead of timing out.** Each of
+  its five account-wide reads now has a page budget, so a book too large for the
+  requested window says which arguments to narrow rather than exceeding the MCP
+  client's request timeout with no output. `lookback_days` is capped at 365 for
+  the same reason, and its description now explains that staleness follows a
+  note's own date rather than its import date.
+- README said the read-only mode hides "nine" write tools. It hides eleven, and
+  the list was missing `update_matter` and `create_folder`.
+
+### Internal
+- The audit-log privacy sweep now derives its arguments from each tool's own
+  input schema and runs against every tool the registry exposes, instead of a
+  hand-written list that a new tool could silently miss.
+- The README's per-section tool counts, the count in the npm description and the
+  read-only write-tool count are checked against the registry in CI. That number
+  has been published wrong three times.
+
 ## [2.2.0] - 2026-09-02
 
 Two things a firm's IT or security reviewer asks for, and one that an App

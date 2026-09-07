@@ -1,12 +1,24 @@
 import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 
-const { mockClioGetAllPages, mockAppendAuditLog } = vi.hoisted(() => ({
-  mockClioGetAllPages: vi.fn(),
-  mockAppendAuditLog: vi.fn().mockResolvedValue(undefined),
-}));
+const { mockClioGetAllPages, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
+  class MockClioApiError extends Error {
+    statusCode: number;
+    constructor(statusCode: number, message: string) {
+      super(message);
+      this.statusCode = statusCode;
+      this.name = "ClioApiError";
+    }
+  }
+  return {
+    mockClioGetAllPages: vi.fn(),
+    mockAppendAuditLog: vi.fn().mockResolvedValue(undefined),
+    MockClioApiError,
+  };
+});
 
 vi.mock("../../utils/clioClient.js", () => ({
   clioGetAllPages: mockClioGetAllPages,
+  ClioApiError: MockClioApiError,
 }));
 
 vi.mock("../../utils/auditLog.js", () => ({
@@ -163,5 +175,33 @@ describe("list_custom_fields", () => {
         expect.objectContaining({ tool: "list_custom_fields", outcome: "error" })
       );
     });
+  });
+});
+
+
+describe("list_custom_fields permission handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("explains a 403 instead of passing Clio's wording through on its own", async () => {
+    mockClioGetAllPages.mockRejectedValue(
+      new MockClioApiError(403, "User is forbidden from taking that action")
+    );
+    const result = await handlers["list_custom_fields"]({ include_deleted: false }) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("User is forbidden");
+    // Says what we have observed and asks for a report. Deliberately does NOT
+    // name a settings screen: the cause is unconfirmed and the two candidate
+    // explanations point at different places.
+    expect(result.content[0].text).toMatch(/not confirmed/);
+    expect(result.content[0].text).toContain("github.com/oktopeak/clio-mcp/issues");
+  });
+
+  it("leaves other errors alone", async () => {
+    mockClioGetAllPages.mockRejectedValue(new MockClioApiError(500, "upstream exploded"));
+    const result = await handlers["list_custom_fields"]({ include_deleted: false }) as any;
+    expect(result.content[0].text).toBe("Error: upstream exploded");
   });
 });

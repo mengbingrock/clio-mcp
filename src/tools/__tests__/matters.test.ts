@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 
-const { mockClioPost, mockClioGet, mockClioPatch, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
+const { mockClioPost, mockClioGet, mockClioPatch, mockClioGetAllPages, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
   class MockClioApiError extends Error {
     statusCode: number;
     constructor(statusCode: number, message: string) {
@@ -13,6 +13,7 @@ const { mockClioPost, mockClioGet, mockClioPatch, mockAppendAuditLog, MockClioAp
     mockClioPost: vi.fn(),
     mockClioGet: vi.fn(),
     mockClioPatch: vi.fn(),
+    mockClioGetAllPages: vi.fn().mockResolvedValue([]),
     mockAppendAuditLog: vi.fn(),
     MockClioApiError,
   };
@@ -22,6 +23,10 @@ vi.mock("../../utils/clioClient.js", () => ({
   clioPost: mockClioPost,
   clioGet: mockClioGet,
   clioPatch: mockClioPatch,
+  clioGetAllPages: mockClioGetAllPages,
+  // Thin passthrough: the fallback path itself is covered in
+  // utils/__tests__/clioClientFieldFallback.test.ts against the real helper.
+  clioGetWithFieldFallback: async (path: string, params: any) => ({ body: await mockClioGet(path, params) }),
   ClioApiError: MockClioApiError,
   extractNextPageToken: (meta: any) => {
     const nextUrl = meta?.paging?.next;
@@ -508,5 +513,69 @@ describe("update_matter", () => {
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toMatch(/^Error:/);
     });
+  });
+});
+
+
+describe("custom field warnings", () => {
+  const STRIPPED = { custom_field_values: [{ id: "text_line-10422772625" }] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClioGetAllPages.mockResolvedValue([]);
+  });
+
+  it("list_matters warns when Clio returned values with no name, type or value", async () => {
+    mockClioGet.mockResolvedValue({ data: [{ ...MOCK_MATTER, ...STRIPPED }] });
+    const result = await handlers["list_matters"]({ limit: 25 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.custom_fields_warning).toMatch(/not yet confirmed/);
+    // The distinction that matters to a model reading this: unread, not empty.
+    expect(parsed.custom_fields_warning).toMatch(/unread, not as empty/);
+  });
+
+  it("list_matters says nothing when the values came back normally", async () => {
+    mockClioGet.mockResolvedValue({ data: [MOCK_MATTER] });
+    const result = await handlers["list_matters"]({ limit: 25 }) as any;
+    expect(JSON.parse(result.content[0].text).custom_fields_warning).toBeUndefined();
+  });
+
+  it("get_matter warns on the same shape", async () => {
+    mockClioGet.mockResolvedValue({ data: { ...MOCK_MATTER, ...STRIPPED } });
+    const result = await handlers["get_matter"]({ matter_id: 42 }) as any;
+    expect(JSON.parse(result.content[0].text).custom_fields_warning).toBeDefined();
+  });
+
+  it("resolves an unlabelled picklist from the field definitions", async () => {
+    mockClioGet.mockResolvedValue({
+      data: { ...MOCK_MATTER, custom_field_values: [
+        { id: "picklist-9", field_name: "Case Type", field_type: "picklist", value: "9002", custom_field: { id: 9 } },
+      ] },
+    });
+    mockClioGetAllPages.mockResolvedValue([
+      { id: 9, name: "Case Type", field_type: "picklist", picklist_options: [{ id: 9002, option: "Identity Theft" }] },
+    ]);
+
+    const result = await handlers["get_matter"]({ matter_id: 42 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.custom_fields[0].display_value).toBe("Identity Theft");
+    expect(parsed.custom_fields[0].value).toBe("9002");
+  });
+
+  it("shows no label rather than the option id when the definitions are refused", async () => {
+    mockClioGet.mockResolvedValue({
+      data: { ...MOCK_MATTER, custom_field_values: [
+        { id: "picklist-9", field_name: "Case Type", field_type: "picklist", value: "9002", custom_field: { id: 9 } },
+      ] },
+    });
+    mockClioGetAllPages.mockRejectedValue(new MockClioApiError(403, "User is forbidden from taking that action"));
+
+    const result = await handlers["get_matter"]({ matter_id: 42 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.custom_fields[0].display_value).toBeNull();
+    expect(parsed.custom_fields[0].label_unresolved).toBe(true);
+    expect(result.isError).toBeUndefined();
   });
 });
