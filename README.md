@@ -528,11 +528,11 @@ All settings are passed as environment variables (in your Claude Desktop config 
 | `CLIO_API_BASE` | No | `<region host>/api/v4` | Advanced override for the API base URL. Takes precedence over `CLIO_REGION` |
 | `CLIO_AUTH_URL` | No | `<region host>/oauth/authorize` | Advanced override for the OAuth authorization endpoint |
 | `CLIO_TOKEN_URL` | No | `<region host>/oauth/token` | Advanced override for the OAuth token endpoint |
-| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the nine write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
+| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the eleven write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
 
 ### Read-only mode
 
-Set `READ_ONLY=true` and the connector never registers its nine write tools (`create_matter`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The 17 read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+Set `READ_ONLY=true` and the connector never registers its eleven write tools (`create_matter`, `update_matter`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `create_folder`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
 
 For Claude Desktop, add it next to the other variables:
 
@@ -612,6 +612,18 @@ The `logout` command removes your stored token file but not the encryption key f
 
 **Port 5678 is already in use**
 Add `"CLIO_REDIRECT_PORT": "5679"` to the `env` block in your Claude Desktop config, and update your Clio application's redirect URI to `http://127.0.0.1:5679/callback`.
+
+**`list_custom_fields` returns 403 "User is forbidden from taking that action"**
+Some accounts refuse custom field reads even when the connecting user is the account owner and the token works for everything else. When it happens, `/custom_fields.json` returns 403 and the custom field values expanded on matters and contacts come back with an id but no name, type or value, with no error at all. **We have not reproduced this and the cause is not confirmed.** It is consistent with the connecting Clio user's permission set not covering custom fields, so the first thing to try is having a Clio administrator confirm that user's custom field access and reconnecting (`logout`, then `authenticate`). If that is already in place, please [open an issue](https://github.com/oktopeak/clio-mcp/issues) with your Clio region and the exact response — we would like to get to the bottom of it.
+
+**Custom fields come back with an `id` but `name`, `type` and `value` are `null`**
+Same accounts, same unconfirmed cause, no error this time: Clio drops the expanded attributes silently. The response carries a `custom_fields_warning` when this happens. Treat those fields as unread rather than empty — they are not blank in Clio.
+
+**A picklist shows `display_value: null` and `label_unresolved: true`**
+The connector could not put a name to the selected option, so it shows nothing rather than the internal option id. It first uses the label Clio sends with the value, then falls back to one read of your field definitions. Both failing usually means the same permission problem as above.
+
+**A response carries a `fields_warning`**
+Clio rejected part of the field selection, so the request was retried without the optional expansions. The response is real but incomplete, and the missing fields are not necessarily empty in Clio. Please report it with the quoted message.
 
 ---
 
