@@ -579,3 +579,63 @@ describe("custom field warnings", () => {
     expect(result.isError).toBeUndefined();
   });
 });
+
+
+describe("matter stages", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClioGetAllPages.mockResolvedValue([]);
+  });
+
+  it("reports the stage name on list_matters and the id and name on get_matter", async () => {
+    const staged = { ...MOCK_MATTER, matter_stage: { id: 7, name: "Discovery" } };
+
+    mockClioGet.mockResolvedValue({ data: [staged] });
+    const list = JSON.parse(((await handlers["list_matters"]({ limit: 25 })) as any).content[0].text);
+    expect(list.matters[0].matter_stage).toBe("Discovery");
+
+    mockClioGet.mockResolvedValue({ data: staged });
+    const detail = JSON.parse(((await handlers["get_matter"]({ matter_id: 42 })) as any).content[0].text);
+    expect(detail.matter_stage).toEqual({ id: 7, name: "Discovery" });
+  });
+
+  it("reports null rather than failing when a matter is in no stage", async () => {
+    mockClioGet.mockResolvedValue({ data: MOCK_MATTER });
+    const detail = JSON.parse(((await handlers["get_matter"]({ matter_id: 42 })) as any).content[0].text);
+    expect(detail.matter_stage).toBeNull();
+  });
+
+  it("asks for the stage only in the full selection, so a wrong name can fall back", async () => {
+    // matter_stage has not been exercised against a live account. If Clio does
+    // not know the association, clioGetWithFieldFallback has to have a selection
+    // left that Clio does know, which means the base set cannot contain it.
+    mockClioGet.mockResolvedValue({ data: [] });
+    await handlers["list_matters"]({ limit: 25 });
+    expect(mockClioGet.mock.calls[0][1].fields).toContain("matter_stage{id,name}");
+  });
+
+  it("sends the stage as an association on create_matter", async () => {
+    mockClioPost.mockResolvedValue({ data: MOCK_MATTER });
+    await handlers["create_matter"]({ ...MIN_ARGS, matter_stage_id: 7 });
+    expect(mockClioPost.mock.calls[0][1].data.matter_stage).toEqual({ id: 7 });
+  });
+
+  it("moves a matter between stages through update_matter", async () => {
+    mockClioPatch.mockResolvedValue({ data: MOCK_MATTER });
+    await handlers["update_matter"]({ matter_id: 42, matter_stage_id: 9 });
+    expect(mockClioPatch.mock.calls[0][1].data.matter_stage).toEqual({ id: 9 });
+  });
+
+  it("counts a stage change as a real update rather than an empty one", async () => {
+    mockClioPatch.mockResolvedValue({ data: MOCK_MATTER });
+    const result = await handlers["update_matter"]({ matter_id: 42, matter_stage_id: 9 }) as any;
+    expect(result.isError).toBeUndefined();
+  });
+
+  it("logs which stage a matter was moved to, since that is an auditable action", async () => {
+    mockClioPatch.mockResolvedValue({ data: MOCK_MATTER });
+    await handlers["update_matter"]({ matter_id: 42, matter_stage_id: 9 });
+    const entry = mockAppendAuditLog.mock.calls.at(-1)![0];
+    expect(entry.args.matter_stage_id).toBe(9);
+  });
+});

@@ -401,7 +401,7 @@ Claude selects and calls these tools automatically based on your questions. You 
 | `list_matters` | `status` (open/pending/closed), `limit`, `page_token` | Lists matters with optional status filter, including custom field values; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `get_matter` | `matter_id` | Returns full detail for a specific matter, including its Maildrop forwarding address and custom field values |
 | `create_matter` | `client_id`, `description`, `status`, `open_date`, `practice_area_id`, `billable`, `responsible_attorney_id`, `originating_attorney_id`, `client_reference`, `custom_field_values` | Creates a new matter; status defaults to Open, billable defaults to true |
-| `update_matter` | `matter_id`, plus any of `create_matter`'s optional fields | Updates one or more fields on an existing matter, including custom field values |
+| `update_matter` | `matter_id`, plus any of `create_matter`'s optional fields | Updates one or more fields on an existing matter, including its stage and custom field values |
 
 ### Custom fields (2 tools)
 
@@ -409,6 +409,12 @@ Claude selects and calls these tools automatically based on your questions. You 
 |---|---|---|
 | `list_custom_fields` | `parent_type` (Matter/Contact), `include_deleted` | Lists the account's custom field definitions with their types, and for picklist fields their allowed options. Call this before reading or writing custom fields |
 | `create_custom_field` | `name`, `parent_type` (Matter/Contact), `field_type`, `required`, `displayed`, `picklist_options` | Creates a new custom field definition. Use the returned `id` as `custom_field_id` in `create_matter` / `update_matter` to set its value |
+
+### Matter stages (1 tool)
+
+| Tool | Inputs | What it does |
+|---|---|---|
+| `list_matter_stages` | `practice_area_id` | Lists the account's matter stages (Pre-Suit, Discovery, Settlement and so on) grouped by practice area and in pipeline order. Call this before setting `matter_stage_id`; moving a matter into a stage can trigger the Clio workflows and tasks attached to it |
 
 ### Contacts (2 tools)
 

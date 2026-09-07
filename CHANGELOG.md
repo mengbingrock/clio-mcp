@@ -4,7 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+> **Staged, not released.** These two tools have never run against a live Clio
+> account. `/matter_stages.json`, the `matter_stage` association name and the
+> `create_custom_field` payload are all taken from Clio's documentation and have
+> not been exercised. Do not publish this to npm before the live checklist
+> passes; 2.2.1 is the version that fixes the outage and it is safe to ship on
+> its own.
+
 ### Added
+- **Matter stages.** `list_matter_stages` returns the firm's own pipeline
+  (Pre-Suit, Discovery, Settlement) grouped by practice area and in order, and
+  `matter_stage` now comes back on `list_matters` and `get_matter` while
+  `matter_stage_id` can be set through `create_matter` and `update_matter`. For
+  most firms the stage is the field that says what a matter needs next, and
+  moving one can trigger the Clio workflows attached to that stage.
 - **`create_custom_field`** creates a new custom field definition (Matter or
   Contact) on the connected account, closing the gap where the connector could
   only set values on fields that already existed. The returned `id` works
