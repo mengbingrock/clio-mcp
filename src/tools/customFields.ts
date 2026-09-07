@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
-import { clioGetAllPages, ClioApiError } from "../utils/clioClient.js";
+import { clioGetAllPages, clioPost, ClioApiError } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 import { CUSTOM_FIELD_DEFINITION_FIELDS, CUSTOM_FIELD_PERMISSION_HINT } from "../utils/customFields.js";
 
@@ -68,6 +68,77 @@ export function registerCustomFieldTools(server: McpServer): void {
           outcome: "error",
           error_message: err.message,
         });
+        if (err instanceof ClioApiError && err.statusCode === 403) {
+          return {
+            content: [{ type: "text", text: `Error: ${err.message}\n\n${CUSTOM_FIELD_PERMISSION_HINT}` }],
+            isError: true,
+          };
+        }
+        return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "create_custom_field",
+    {
+      description:
+        "Create a new custom field definition on this Clio account (Matter or Contact). Once created, set its value on a record with create_matter/update_matter's custom_field_values, using the returned id as custom_field_id.",
+      inputSchema: {
+        name: z.string().min(1).describe("Label shown for this field in Clio"),
+        parent_type: z.enum(["Matter", "Contact"]).describe("Whether this field applies to matters or contacts"),
+        field_type: z
+          .string()
+          .min(1)
+          .describe(
+            "Clio field type, e.g. text_line, text_area, checkbox, date, numeric, currency, email, url, or picklist. " +
+              "Clio validates this server-side and returns a clear error for an unsupported value."
+          ),
+        required: z.boolean().default(false).describe("Whether this field must be filled in on the record"),
+        displayed: z.boolean().default(true).describe("Whether this field is shown in Clio's UI (default true)"),
+        picklist_options: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Allowed option labels, only used when field_type is picklist"),
+      },
+    },
+    async ({ name, parent_type, field_type, required, displayed, picklist_options }) => {
+      // Never log `name` (or picklist option labels) - a firm can name a
+      // field after a client or case detail, same rule as create_note's
+      // subject/body and create_matter's description.
+      const auditArgs = { parent_type, field_type, required, displayed };
+      try {
+        const data: Record<string, unknown> = { name, parent_type, field_type, required, displayed };
+        if (picklist_options && picklist_options.length > 0) {
+          data["picklist_options"] = picklist_options.map((option) => ({ option }));
+        }
+
+        const res = await clioPost("/custom_fields.json", { data });
+        const f = res.data;
+
+        await appendAuditLog({ tool: "create_custom_field", args: auditArgs, outcome: "success" });
+
+        const result = {
+          success: true,
+          custom_field: {
+            id: f.id,
+            name: f.name,
+            type: f.field_type,
+            parent_type: f.parent_type,
+            required: f.required ?? null,
+            displayed: f.displayed ?? null,
+            ...(Array.isArray(f.picklist_options) && f.picklist_options.length > 0 && {
+              picklist_options: f.picklist_options.map((o: any) => ({ id: o.id, option: o.option })),
+            }),
+          },
+        };
+
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (err: any) {
+        await appendAuditLog({ tool: "create_custom_field", args: auditArgs, outcome: "error", error_message: err.message });
+        if (err instanceof ClioApiError && err.statusCode === 422) {
+          return { content: [{ type: "text", text: `Validation error: ${err.message}` }], isError: true };
+        }
         if (err instanceof ClioApiError && err.statusCode === 403) {
           return {
             content: [{ type: "text", text: `Error: ${err.message}\n\n${CUSTOM_FIELD_PERMISSION_HINT}` }],

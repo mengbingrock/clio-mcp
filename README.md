@@ -403,11 +403,12 @@ Claude selects and calls these tools automatically based on your questions. You 
 | `create_matter` | `client_id`, `description`, `status`, `open_date`, `practice_area_id`, `billable`, `responsible_attorney_id`, `originating_attorney_id`, `client_reference`, `custom_field_values` | Creates a new matter; status defaults to Open, billable defaults to true |
 | `update_matter` | `matter_id`, plus any of `create_matter`'s optional fields | Updates one or more fields on an existing matter, including custom field values |
 
-### Custom fields (1 tool)
+### Custom fields (2 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
 | `list_custom_fields` | `parent_type` (Matter/Contact), `include_deleted` | Lists the account's custom field definitions with their types, and for picklist fields their allowed options. Call this before reading or writing custom fields |
+| `create_custom_field` | `name`, `parent_type` (Matter/Contact), `field_type`, `required`, `displayed`, `picklist_options` | Creates a new custom field definition. Use the returned `id` as `custom_field_id` in `create_matter` / `update_matter` to set its value |
 
 ### Contacts (2 tools)
 
@@ -528,11 +529,11 @@ All settings are passed as environment variables (in your Claude Desktop config 
 | `CLIO_API_BASE` | No | `<region host>/api/v4` | Advanced override for the API base URL. Takes precedence over `CLIO_REGION` |
 | `CLIO_AUTH_URL` | No | `<region host>/oauth/authorize` | Advanced override for the OAuth authorization endpoint |
 | `CLIO_TOKEN_URL` | No | `<region host>/oauth/token` | Advanced override for the OAuth token endpoint |
-| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the eleven write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
+| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the twelve write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
 
 ### Read-only mode
 
-Set `READ_ONLY=true` and the connector never registers its eleven write tools (`create_matter`, `update_matter`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `create_folder`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+Set `READ_ONLY=true` and the connector never registers its twelve write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `create_folder`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
 
 For Claude Desktop, add it next to the other variables:
 

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- **`create_custom_field`** creates a new custom field definition (Matter or
+  Contact) on the connected account, closing the gap where the connector could
+  only set values on fields that already existed. The returned `id` works
+  immediately as `custom_field_id` in `create_matter` / `update_matter`. A 403
+  from it is explained the same way `list_custom_fields` explains one.
+
 ## [2.2.1] - 2026-09-07
 
 A hotfix. 2.2.0 could not read a matter or a contact at all, and it was the
