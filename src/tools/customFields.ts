@@ -1,10 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
-import { clioGetAllPages } from "../utils/clioClient.js";
+import { clioGetAllPages, ClioApiError } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
-
-const CUSTOM_FIELD_FIELDS =
-  "id,name,field_type,parent_type,required,displayed,deleted,picklist_options{id,option}";
+import { CUSTOM_FIELD_DEFINITION_FIELDS, CUSTOM_FIELD_PERMISSION_HINT } from "../utils/customFields.js";
 
 export function registerCustomFieldTools(server: McpServer): void {
   server.registerTool(
@@ -25,7 +23,7 @@ export function registerCustomFieldTools(server: McpServer): void {
     },
     async ({ parent_type, include_deleted }) => {
       try {
-        const params: Record<string, string> = { fields: CUSTOM_FIELD_FIELDS };
+        const params: Record<string, string> = { fields: CUSTOM_FIELD_DEFINITION_FIELDS };
         if (parent_type) params["parent_type"] = parent_type;
 
         // Definitions are a small, bounded set and a partial list would send a
@@ -70,6 +68,12 @@ export function registerCustomFieldTools(server: McpServer): void {
           outcome: "error",
           error_message: err.message,
         });
+        if (err instanceof ClioApiError && err.statusCode === 403) {
+          return {
+            content: [{ type: "text", text: `Error: ${err.message}\n\n${CUSTOM_FIELD_PERMISSION_HINT}` }],
+            isError: true,
+          };
+        }
         return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
       }
     }

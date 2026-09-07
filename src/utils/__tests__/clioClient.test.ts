@@ -15,7 +15,7 @@ vi.mock("../clioRegion.js", () => ({
   getClioApiBaseUrl: vi.fn().mockReturnValue("https://app.clio.com/api/v4"),
 }));
 
-import { clioGet, clioGetAllPages, ClioApiError } from "../clioClient.js";
+import { clioGet, clioGetAllPages, clioGetWithFieldFallback, ClioApiError } from "../clioClient.js";
 
 function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<string, string> }) {
   return new Response(JSON.stringify(body), {
@@ -168,6 +168,100 @@ describe("clioFetch retry/backoff (via clioGet)", () => {
     const result = await promise;
 
     expect(result.data).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+/**
+ * 2.2.0 shipped a `fields` string Clio rejected, and because one string is shared
+ * by every matter and contact read it took all of them down at once for five
+ * days. These cover the guard that turns that into a degraded response.
+ */
+describe("clioGetWithFieldFallback", () => {
+  const FULL = "id,name,custom_field_values{id,value,picklist_option}";
+  const BASE = "id,name";
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function fieldsOf(call: number): string | null {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    return new URL(fetchMock.mock.calls[call][0] as string).searchParams.get("fields");
+  }
+
+  it("returns the first response untouched when Clio accepts the field selection", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { id: 1 } }));
+
+    const result = await clioGetWithFieldFallback("/matters/1.json", { fields: FULL }, BASE);
+
+    expect(result.body).toEqual({ data: { id: 1 } });
+    expect(result.fields_warning).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once with the reduced selection when Clio rejects a field", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(
+        { message: "custom_field_values{id,value,picklist_option}: picklist_option} is not a valid field" },
+        { status: 400 }
+      ))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 1 } }));
+
+    const result = await clioGetWithFieldFallback("/matters/1.json", { fields: FULL }, BASE);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fieldsOf(0)).toBe(FULL);
+    expect(fieldsOf(1)).toBe(BASE);
+    expect(result.body).toEqual({ data: { id: 1 } });
+    // The warning has to say the missing fields are missing, not empty: a model
+    // reading this must not conclude the firm left its custom fields blank.
+    expect(result.fields_warning).toMatch(/not necessarily empty/);
+    expect(result.fields_warning).toMatch(/is not a valid field/);
+  });
+
+  it("keeps every other request parameter on the retry", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ message: "nope is not a valid field" }, { status: 400 }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await clioGetWithFieldFallback("/matters.json", { fields: FULL, limit: "200", status: "open" }, BASE);
+
+    const retried = new URL((fetchMock.mock.calls[1][0] as string));
+    expect(retried.searchParams.get("limit")).toBe("200");
+    expect(retried.searchParams.get("status")).toBe("open");
+  });
+
+  it("retries at most once, so a fallback that is also rejected still surfaces", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ message: "a is not a valid field" }, { status: 400 }))
+      .mockResolvedValueOnce(jsonResponse({ message: "b is not a valid field" }, { status: 400 }));
+
+    await expect(clioGetWithFieldFallback("/matters.json", { fields: FULL }, BASE)).rejects.toThrow(ClioApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a 400 that is not about the field selection", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "invalid page_token" }, { status: 400 }));
+
+    await expect(clioGetWithFieldFallback("/matters.json", { fields: FULL }, BASE)).rejects.toThrow(/invalid page_token/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([403, 404, 422, 500])("does not retry a %i", async (status) => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "is not a valid field" }, { status }));
+
+    await expect(clioGetWithFieldFallback("/matters.json", { fields: FULL }, BASE)).rejects.toThrow(ClioApiError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

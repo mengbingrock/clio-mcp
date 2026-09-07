@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 
-const { mockClioGet, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
+const { mockClioGet, mockClioGetAllPages, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
   class MockClioApiError extends Error {
     statusCode: number;
     constructor(statusCode: number, message: string) {
@@ -11,6 +11,7 @@ const { mockClioGet, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
   }
   return {
     mockClioGet: vi.fn(),
+    mockClioGetAllPages: vi.fn().mockResolvedValue([]),
     mockAppendAuditLog: vi.fn().mockResolvedValue(undefined),
     MockClioApiError,
   };
@@ -18,6 +19,8 @@ const { mockClioGet, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
 
 vi.mock("../../utils/clioClient.js", () => ({
   clioGet: mockClioGet,
+  clioGetAllPages: mockClioGetAllPages,
+  clioGetWithFieldFallback: async (path: string, params: any) => ({ body: await mockClioGet(path, params) }),
   ClioApiError: MockClioApiError,
   extractNextPageToken: vi.fn((meta: any) => {
     const nextUrl = meta?.paging?.next;
@@ -79,7 +82,7 @@ describe("search_contacts", () => {
   it("requests picklist_option so labels are available", async () => {
     mockClioGet.mockResolvedValue({ data: [MOCK_CONTACT], meta: { records: 1 } });
     await handlers["search_contacts"]({ query: "Acme", limit: 25 });
-    expect(mockClioGet.mock.calls[0][1].fields).toContain("picklist_option{id,option}");
+    expect(mockClioGet.mock.calls[0][1].fields).toContain("picklist_option");
   });
 
   it("maps custom fields by name with a resolved picklist label", async () => {
@@ -134,5 +137,35 @@ describe("get_contact", () => {
     mockClioGet.mockRejectedValue(new MockClioApiError(404, "Contact not found"));
     const result = await handlers["get_contact"]({ contact_id: 999 }) as any;
     expect(result.content[0].text).toBe("Contact 999 not found.");
+  });
+});
+
+
+describe("custom field warnings", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClioGetAllPages.mockResolvedValue([]);
+  });
+
+  it("search_contacts warns when a value came back as an id and nothing else", async () => {
+    mockClioGet.mockResolvedValue({
+      data: [{ ...MOCK_CONTACT, custom_field_values: [{ id: "text_line-999" }] }],
+      meta: { records: 1 },
+    });
+    const result = await handlers["search_contacts"]({ query: "Acme", limit: 25 }) as any;
+    expect(JSON.parse(result.content[0].text).custom_fields_warning).toBeDefined();
+  });
+
+  it("get_contact warns on the same shape and stays a success", async () => {
+    mockClioGet.mockResolvedValue({ data: { ...MOCK_CONTACT, custom_field_values: [{ id: "picklist-999" }] } });
+    const result = await handlers["get_contact"]({ contact_id: 5 }) as any;
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content[0].text).custom_fields_warning).toBeDefined();
+  });
+
+  it("says nothing when the values came back normally", async () => {
+    mockClioGet.mockResolvedValue({ data: { ...MOCK_CONTACT, custom_field_values: [PICKLIST_VALUE] } });
+    const result = await handlers["get_contact"]({ contact_id: 5 }) as any;
+    expect(JSON.parse(result.content[0].text).custom_fields_warning).toBeUndefined();
   });
 });
