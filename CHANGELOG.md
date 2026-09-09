@@ -4,18 +4,36 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-09
+
+This release expands task, calendar, document, and time-entry workflows while
+retaining the library mode, read-only controls, and live-verified field handling
+introduced upstream in 2.3.0.
+
 ### Added
+- Full task detail reads with `get_task`, including Task Type, estimate, and the
+  time entries shown in Clio's Recorded Time section.
 - `list_task_types` for discovering existing Task Type IDs, plus `task_type_id`
   support when listing, creating, and updating tasks.
+- Richer task create/update support for timestamped due dates, assignee and
+  completion notifications, permissions, status, and detailed confirmations.
 - Task-linked time entries. `log_time_entry` and TimeEntry calls through
   `create_activity` now accept `task_id`, then read the task back and report
   whether the new entry appears in its Recorded Time. `get_task` also returns
   the Recorded Time entries, and `list_time_entries` can filter by `task_id`.
+- Complete calendar entry reads, updates, rescheduling, and deletion, with UTC
+  normalization, permissions, attendees, reminders, and writable-calendar
+  discovery.
+- Folder-aware document upload and `update_document` for renaming or moving a
+  document after verifying its actual matter/folder parent.
 
 ### Fixed
 - Task `time_estimated` values are seconds in the Clio API. The MCP interface
   continues to accept and return minutes, but now converts minutes to seconds
   on create/update and seconds to minutes on reads.
+- Contact search can be called without a query to list contacts, and collection
+  reads retain Clio's safe custom-field projection and fallback behavior.
+- Calendar responses expose Clio's permission value.
 
 ## [2.3.0] - 2026-09-07
 
