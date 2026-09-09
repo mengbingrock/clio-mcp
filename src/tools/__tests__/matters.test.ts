@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 
-const { mockClioPost, mockClioGet, mockClioPatch, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
+const { mockClioPost, mockClioGet, mockClioPatch, mockClioGetAllPages, mockAppendAuditLog, MockClioApiError } = vi.hoisted(() => {
   class MockClioApiError extends Error {
     statusCode: number;
     constructor(statusCode: number, message: string) {
@@ -13,6 +13,7 @@ const { mockClioPost, mockClioGet, mockClioPatch, mockAppendAuditLog, MockClioAp
     mockClioPost: vi.fn(),
     mockClioGet: vi.fn(),
     mockClioPatch: vi.fn(),
+    mockClioGetAllPages: vi.fn().mockResolvedValue([]),
     mockAppendAuditLog: vi.fn(),
     MockClioApiError,
   };
@@ -22,6 +23,10 @@ vi.mock("../../utils/clioClient.js", () => ({
   clioPost: mockClioPost,
   clioGet: mockClioGet,
   clioPatch: mockClioPatch,
+  clioGetAllPages: mockClioGetAllPages,
+  // Thin passthrough: the fallback path itself is covered in
+  // utils/__tests__/clioClientFieldFallback.test.ts against the real helper.
+  clioGetWithFieldFallback: async (path: string, params: any) => ({ body: await mockClioGet(path, params) }),
   ClioApiError: MockClioApiError,
   extractNextPageToken: (meta: any) => {
     const nextUrl = meta?.paging?.next;
@@ -70,10 +75,13 @@ describe("list_matters", () => {
     vi.clearAllMocks();
   });
 
-  it("omits detail-only custom fields from the collection request", async () => {
+  it("requests custom fields in the collection projection without nested associations", async () => {
     mockClioGet.mockResolvedValue({ data: [MOCK_MATTER] });
     await handlers["list_matters"]({ limit: 25 });
-    expect(mockClioGet.mock.calls[0][1].fields).not.toContain("custom_field_values");
+    const fields = mockClioGet.mock.calls[0][1].fields;
+    expect(fields).toContain("custom_field_values");
+    expect(fields).toContain("picklist_option");
+    expect(fields).not.toContain("picklist_option{");
   });
 
   it("returns a JSON result with has_more: false when the page is empty, not a plain-text sentinel", async () => {
@@ -516,5 +524,129 @@ describe("update_matter", () => {
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toMatch(/^Error:/);
     });
+  });
+});
+
+
+describe("custom field warnings", () => {
+  const STRIPPED = { custom_field_values: [{ id: "text_line-10422772625" }] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClioGetAllPages.mockResolvedValue([]);
+  });
+
+  it("list_matters warns when Clio returned values with no name, type or value", async () => {
+    mockClioGet.mockResolvedValue({ data: [{ ...MOCK_MATTER, ...STRIPPED }] });
+    const result = await handlers["list_matters"]({ limit: 25 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.custom_fields_warning).toMatch(/not yet confirmed/);
+    // The distinction that matters to a model reading this: unread, not empty.
+    expect(parsed.custom_fields_warning).toMatch(/unread, not as empty/);
+  });
+
+  it("list_matters says nothing when the values came back normally", async () => {
+    mockClioGet.mockResolvedValue({ data: [MOCK_MATTER] });
+    const result = await handlers["list_matters"]({ limit: 25 }) as any;
+    expect(JSON.parse(result.content[0].text).custom_fields_warning).toBeUndefined();
+  });
+
+  it("get_matter warns on the same shape", async () => {
+    mockClioGet.mockResolvedValue({ data: { ...MOCK_MATTER, ...STRIPPED } });
+    const result = await handlers["get_matter"]({ matter_id: 42 }) as any;
+    expect(JSON.parse(result.content[0].text).custom_fields_warning).toBeDefined();
+  });
+
+  it("resolves an unlabelled picklist from the field definitions", async () => {
+    mockClioGet.mockResolvedValue({
+      data: { ...MOCK_MATTER, custom_field_values: [
+        { id: "picklist-9", field_name: "Case Type", field_type: "picklist", value: "9002", custom_field: { id: 9 } },
+      ] },
+    });
+    mockClioGetAllPages.mockResolvedValue([
+      { id: 9, name: "Case Type", field_type: "picklist", picklist_options: [{ id: 9002, option: "Identity Theft" }] },
+    ]);
+
+    const result = await handlers["get_matter"]({ matter_id: 42 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.custom_fields[0].display_value).toBe("Identity Theft");
+    expect(parsed.custom_fields[0].value).toBe("9002");
+  });
+
+  it("shows no label rather than the option id when the definitions are refused", async () => {
+    mockClioGet.mockResolvedValue({
+      data: { ...MOCK_MATTER, custom_field_values: [
+        { id: "picklist-9", field_name: "Case Type", field_type: "picklist", value: "9002", custom_field: { id: 9 } },
+      ] },
+    });
+    mockClioGetAllPages.mockRejectedValue(new MockClioApiError(403, "User is forbidden from taking that action"));
+
+    const result = await handlers["get_matter"]({ matter_id: 42 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.custom_fields[0].display_value).toBeNull();
+    expect(parsed.custom_fields[0].label_unresolved).toBe(true);
+    expect(result.isError).toBeUndefined();
+  });
+});
+
+
+describe("matter stages", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClioGetAllPages.mockResolvedValue([]);
+  });
+
+  it("reports the stage name on list_matters and the id and name on get_matter", async () => {
+    const staged = { ...MOCK_MATTER, matter_stage: { id: 7, name: "Discovery" } };
+
+    mockClioGet.mockResolvedValue({ data: [staged] });
+    const list = JSON.parse(((await handlers["list_matters"]({ limit: 25 })) as any).content[0].text);
+    expect(list.matters[0].matter_stage).toBe("Discovery");
+
+    mockClioGet.mockResolvedValue({ data: staged });
+    const detail = JSON.parse(((await handlers["get_matter"]({ matter_id: 42 })) as any).content[0].text);
+    expect(detail.matter_stage).toEqual({ id: 7, name: "Discovery" });
+  });
+
+  it("reports null rather than failing when a matter is in no stage", async () => {
+    mockClioGet.mockResolvedValue({ data: MOCK_MATTER });
+    const detail = JSON.parse(((await handlers["get_matter"]({ matter_id: 42 })) as any).content[0].text);
+    expect(detail.matter_stage).toBeNull();
+  });
+
+  it("asks for the stage only in the full selection, so a wrong name can fall back", async () => {
+    // matter_stage has not been exercised against a live account. If Clio does
+    // not know the association, clioGetWithFieldFallback has to have a selection
+    // left that Clio does know, which means the base set cannot contain it.
+    mockClioGet.mockResolvedValue({ data: [] });
+    await handlers["list_matters"]({ limit: 25 });
+    expect(mockClioGet.mock.calls[0][1].fields).toContain("matter_stage{id,name}");
+  });
+
+  it("sends the stage as an association on create_matter", async () => {
+    mockClioPost.mockResolvedValue({ data: MOCK_MATTER });
+    await handlers["create_matter"]({ ...MIN_ARGS, matter_stage_id: 7 });
+    expect(mockClioPost.mock.calls[0][1].data.matter_stage).toEqual({ id: 7 });
+  });
+
+  it("moves a matter between stages through update_matter", async () => {
+    mockClioPatch.mockResolvedValue({ data: MOCK_MATTER });
+    await handlers["update_matter"]({ matter_id: 42, matter_stage_id: 9 });
+    expect(mockClioPatch.mock.calls[0][1].data.matter_stage).toEqual({ id: 9 });
+  });
+
+  it("counts a stage change as a real update rather than an empty one", async () => {
+    mockClioPatch.mockResolvedValue({ data: MOCK_MATTER });
+    const result = await handlers["update_matter"]({ matter_id: 42, matter_stage_id: 9 }) as any;
+    expect(result.isError).toBeUndefined();
+  });
+
+  it("logs which stage a matter was moved to, since that is an auditable action", async () => {
+    mockClioPatch.mockResolvedValue({ data: MOCK_MATTER });
+    await handlers["update_matter"]({ matter_id: 42, matter_stage_id: 9 });
+    const entry = mockAppendAuditLog.mock.calls.at(-1)![0];
+    expect(entry.args.matter_stage_id).toBe(9);
   });
 });

@@ -387,7 +387,11 @@ export function registerDocumentTools(server: McpServer): void {
         if (name !== undefined) data.name = name;
         if (requestedParent) data.parent = requestedParent;
 
-        await clioPatch(`/documents/${document_id}.json`, { data });
+        await clioPatch(
+          `/documents/${document_id}.json`,
+          { data },
+          { fields: DOCUMENT_DETAIL_FIELDS }
+        );
         const readback = (await clioGet(`/documents/${document_id}.json`, { fields: DOCUMENT_DETAIL_FIELDS })).data;
         const actualParent = mapDocumentParent(readback);
 

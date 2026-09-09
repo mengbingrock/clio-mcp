@@ -1,9 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeEach } from "vitest";
+
+const { mockClioGetAllPages } = vi.hoisted(() => ({ mockClioGetAllPages: vi.fn() }));
+vi.mock("../clioClient.js", () => ({ clioGetAllPages: mockClioGetAllPages }));
+
 import {
   mapCustomFieldValues,
   buildCustomFieldWrites,
   customFieldIdsForAudit,
-  CUSTOM_FIELD_VALUE_DETAIL_FIELDS,
+  hasStrippedCustomFieldValues,
+  hasUnresolvedPicklistLabels,
+  resolvePicklistLabelsFor,
+  CUSTOM_FIELD_VALUE_FIELDS,
 } from "../customFields.js";
 
 const PICKLIST = {
@@ -23,13 +30,40 @@ const TEXT = {
   custom_field: { id: 55001 },
 };
 
-describe("CUSTOM_FIELD_VALUE_DETAIL_FIELDS", () => {
-  it("requests the fields and picklist label supported by detail reads", () => {
-    for (const part of ["field_name", "field_type", "value"]) {
-      expect(CUSTOM_FIELD_VALUE_DETAIL_FIELDS).toContain(part);
+/** A picklist whose selected option came back without its label. */
+const PICKLIST_NO_LABEL = {
+  id: "picklist-55003",
+  field_name: "Case Type",
+  field_type: "picklist",
+  value: "9002",
+  custom_field: { id: 55003 },
+};
+
+/** What Clio returns when the expanded attributes are dropped: an id and nothing else. */
+const STRIPPED = { id: "picklist-2132716625" };
+
+describe("CUSTOM_FIELD_VALUE_FIELDS", () => {
+  it("asks for everything needed to read a field without a second call", () => {
+    // Without picklist_option a picklist reads back as a bare option id, and
+    // without field_type the caller cannot tell a currency from a text field.
+    for (const part of ["field_name", "field_type", "value", "custom_field", "picklist_option"]) {
+      expect(CUSTOM_FIELD_VALUE_FIELDS).toContain(part);
     }
-    expect(CUSTOM_FIELD_VALUE_DETAIL_FIELDS).toContain("picklist_option");
-    expect(CUSTOM_FIELD_VALUE_DETAIL_FIELDS).not.toContain("picklist_option{");
+    expect(CUSTOM_FIELD_VALUE_FIELDS).toContain("picklist_option");
+    expect(CUSTOM_FIELD_VALUE_FIELDS).not.toContain("picklist_option{");
+  });
+
+  it("never nests a second brace group, which Clio answers with a 400 for the whole request", () => {
+    // 2.2.0 shipped `custom_field_values{...,custom_field{id},picklist_option{id,option}}`
+    // and Clio replied `picklist_option} is not a valid field`, breaking every
+    // matter and contact read for five days. This string is embedded in all of
+    // them, so it gets a test rather than a comment.
+    const inner = CUSTOM_FIELD_VALUE_FIELDS.slice(
+      CUSTOM_FIELD_VALUE_FIELDS.indexOf("{") + 1,
+      CUSTOM_FIELD_VALUE_FIELDS.lastIndexOf("}")
+    );
+    expect(inner).not.toContain("{");
+    expect(inner).not.toContain("}");
   });
 });
 
@@ -140,5 +174,133 @@ describe("customFieldIdsForAudit", () => {
 
   it("stays undefined when nothing was written", () => {
     expect(customFieldIdsForAudit(undefined)).toBeUndefined();
+  });
+});
+
+
+describe("picklist labels", () => {
+  it("uses the inline option label when Clio sends one", () => {
+    const [field] = mapCustomFieldValues([PICKLIST]);
+    expect(field.display_value).toBe("Identity Theft");
+    expect(field.label_unresolved).toBeUndefined();
+  });
+
+  it("never presents the raw option id as the human reading of a picklist", () => {
+    // The whole point. A firm reported exactly this: Claude showing "9002"
+    // where the lawyer sees "Identity Theft". Better to show nothing and say so.
+    const [field] = mapCustomFieldValues([PICKLIST_NO_LABEL]);
+    expect(field.value).toBe("9002");
+    expect(field.display_value).toBeNull();
+    expect(field.label_unresolved).toBe(true);
+  });
+
+  it("treats a value whose type only survives in its composite id as a picklist", () => {
+    const [field] = mapCustomFieldValues([{ id: "picklist-1", value: "9002" }]);
+    expect(field.display_value).toBeNull();
+    expect(field.label_unresolved).toBe(true);
+  });
+
+  it("leaves non-picklist fields alone", () => {
+    const [field] = mapCustomFieldValues([TEXT]);
+    expect(field.display_value).toBe("24-cv-1234");
+    expect(field.label_unresolved).toBeUndefined();
+  });
+
+  it("does not flag a picklist with nothing selected", () => {
+    const [field] = mapCustomFieldValues([{ ...PICKLIST_NO_LABEL, value: null }]);
+    expect(field.label_unresolved).toBeUndefined();
+  });
+
+  it("resolves from a supplied label map", () => {
+    const labels = new Map([["9002", "Identity Theft"]]);
+    const [field] = mapCustomFieldValues([PICKLIST_NO_LABEL], labels);
+    expect(field.display_value).toBe("Identity Theft");
+    expect(field.label_unresolved).toBeUndefined();
+  });
+});
+
+describe("resolvePicklistLabelsFor", () => {
+  const DEFINITIONS = [
+    { id: 55003, name: "Case Type", field_type: "picklist", picklist_options: [
+      { id: 9001, option: "Credit Reporting" },
+      { id: 9002, option: "Identity Theft" },
+    ] },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockClioGetAllPages.mockResolvedValue(DEFINITIONS);
+  });
+
+  it("makes no request when every label already arrived inline", async () => {
+    const groups = [mapCustomFieldValues([PICKLIST, TEXT])];
+    await resolvePicklistLabelsFor(groups, "Matter");
+    expect(mockClioGetAllPages).not.toHaveBeenCalled();
+  });
+
+  it("reads the definitions once for the whole response, not once per record", async () => {
+    const groups = [
+      mapCustomFieldValues([PICKLIST_NO_LABEL]),
+      mapCustomFieldValues([PICKLIST_NO_LABEL]),
+      mapCustomFieldValues([PICKLIST_NO_LABEL]),
+    ];
+    await resolvePicklistLabelsFor(groups, "Matter");
+
+    expect(mockClioGetAllPages).toHaveBeenCalledTimes(1);
+    expect(mockClioGetAllPages.mock.calls[0][0]).toBe("/custom_fields.json");
+    expect(mockClioGetAllPages.mock.calls[0][1].parent_type).toBe("Matter");
+    for (const group of groups) {
+      expect(group[0].display_value).toBe("Identity Theft");
+      expect(group[0].label_unresolved).toBeUndefined();
+    }
+  });
+
+  it("leaves the label unresolved when the definitions cannot be read", async () => {
+    // The 403 case. A missing label is recoverable; a wrong one on a field a
+    // firm vets cases with is not.
+    mockClioGetAllPages.mockRejectedValue(new Error("403 forbidden"));
+    const groups = [mapCustomFieldValues([PICKLIST_NO_LABEL])];
+
+    await resolvePicklistLabelsFor(groups, "Matter");
+
+    expect(groups[0][0].display_value).toBeNull();
+    expect(groups[0][0].label_unresolved).toBe(true);
+  });
+
+  it("leaves an option the definitions do not describe unresolved", async () => {
+    const groups = [mapCustomFieldValues([{ ...PICKLIST_NO_LABEL, value: "9999" }])];
+    await resolvePicklistLabelsFor(groups, "Matter");
+    expect(groups[0][0].display_value).toBeNull();
+    expect(groups[0][0].label_unresolved).toBe(true);
+  });
+
+  it("does not fire for values that were stripped rather than unlabelled", async () => {
+    // Stripped values have no option id to look up, and the account that strips
+    // them is the account whose /custom_fields.json 403s anyway.
+    const groups = [mapCustomFieldValues([STRIPPED])];
+    await resolvePicklistLabelsFor(groups, "Matter");
+    expect(mockClioGetAllPages).not.toHaveBeenCalled();
+  });
+});
+
+describe("hasUnresolvedPicklistLabels", () => {
+  it("is true only when a set option could not be named", () => {
+    expect(hasUnresolvedPicklistLabels([mapCustomFieldValues([PICKLIST_NO_LABEL])])).toBe(true);
+    expect(hasUnresolvedPicklistLabels([mapCustomFieldValues([PICKLIST, TEXT])])).toBe(false);
+    expect(hasUnresolvedPicklistLabels([[]])).toBe(false);
+  });
+});
+
+describe("hasStrippedCustomFieldValues", () => {
+  it("flags a value that has an id but no name, type or value", () => {
+    expect(hasStrippedCustomFieldValues(mapCustomFieldValues([STRIPPED]))).toBe(true);
+  });
+
+  it("does not flag normally populated values", () => {
+    expect(hasStrippedCustomFieldValues(mapCustomFieldValues([TEXT, PICKLIST]))).toBe(false);
+  });
+
+  it("does not flag an empty array", () => {
+    expect(hasStrippedCustomFieldValues([])).toBe(false);
   });
 });

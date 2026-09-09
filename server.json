@@ -1,25 +1,25 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.oktopeak/clio-mcp",
-  "description": "Connect Claude to Clio: 40 tools for matters, custom fields, notes, contacts, documents, folders, tasks, calendar, time entries, billing, and audit logs.",
+  "description": "Connect Claude to Clio: 42 tools for matters, contacts, tasks, calendar, documents and billing.",
   "websiteUrl": "https://oktopeak.com/clio-mcp/",
   "repository": {
     "url": "https://github.com/oktopeak/clio-mcp",
     "source": "github"
   },
-  "version": "2.1.0-beta.1",
+  "version": "2.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@oktopeak/clio-mcp",
-      "version": "2.1.0-beta.1",
+      "version": "2.3.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "CLIO_CLIENT_ID",
-          "description": "Client ID from your Clio developer application (Settings \u2192 Developer Applications)",
+          "description": "Client ID from your Clio developer application (Settings → Developer Applications)",
           "isRequired": true,
           "format": "string",
           "isSecret": false
@@ -53,6 +53,13 @@
           "isSecret": false
         },
         {
+          "name": "READ_ONLY",
+          "description": "Optional. 'true', '1' or 'yes' leaves the fifteen write tools (create_matter, create_custom_field, create_note, create_task, update_task, complete_task, create_calendar_entry, update_calendar_entry, delete_calendar_entry, log_time_entry, create_activity, update_matter, create_folder, upload_document, update_document) unregistered so Claude can read Clio but never change it. Works on both transports.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
           "name": "CLIO_API_BASE",
           "description": "Advanced override for the Clio API base URL (e.g. https://eu.app.clio.com/api/v4). Takes precedence over CLIO_REGION.",
           "isRequired": false,
@@ -72,6 +79,30 @@
           "isRequired": false,
           "format": "string",
           "isSecret": false
+        }
+      ]
+    },
+    {
+      "registryType": "npm",
+      "identifier": "@oktopeak/clio-mcp",
+      "version": "2.3.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TOKEN_BROKER_URL",
+          "description": "URL of Oktopeak's hosted token broker for the Clio App Directory listed install. Do not set CLIO_CLIENT_ID/CLIO_CLIENT_SECRET alongside this — the shared app's secret lives only on the broker, never on this machine.",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "ENCRYPTION_KEY",
+          "description": "Optional. Leave unset to auto-generate a key stored in the OS keychain (or ~/.clio-mcp/key.hex as fallback on headless Linux/WSL2). If set, must be a 64-character hex string — it will be migrated to the OS keychain on first use.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
         }
       ]
     }

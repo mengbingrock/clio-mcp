@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getClioRegion, CLIO_REGION_BASE_URLS } from './utils/clioRegion.js';
 import { resolveHttpAuthConfig } from './server/httpAuth.js';
+import { validateAuthEnv } from './config/startupValidation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env') });
@@ -16,10 +17,9 @@ function fatal(message: string): never {
 }
 
 async function main() {
-    const missing = (["CLIO_CLIENT_ID", "CLIO_CLIENT_SECRET"] as const)
-        .filter((k) => !process.env[k]);
-    if (missing.length > 0) {
-        fatal(`missing required env var(s): ${missing.join(", ")}. Check your .env file.`);
+    const authEnv = validateAuthEnv(process.env);
+    if (!authEnv.ok) {
+        fatal(authEnv.message.replace(/^\[startup\] Fatal: /, ""));
     }
 
     // Fail fast on an unknown CLIO_REGION (both transports). No silent fallback to the US endpoint.
@@ -31,43 +31,19 @@ async function main() {
 
     const mode = (process.env.TRANSPORT ?? "http").toLowerCase();
 
+    // READ_ONLY=true leaves the 9 write tools unregistered on either transport.
+    const { registerAllTools, isReadOnlyEnv, WRITE_TOOLS } = await import("./tools/index.js");
+    const readOnly = isReadOnlyEnv();
+    if (readOnly) {
+        console.error(`[startup] READ_ONLY=true: ${WRITE_TOOLS.size} write tools are not registered (${[...WRITE_TOOLS].join(", ")})`);
+    }
+
     if (mode === "stdio") {
         const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
         const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-        const { registerAuthTools } = await import("./auth/authTools.js");
-        const { registerResources } = await import("./resources/index.js");
-        const { registerMatterTools } = await import("./tools/matters.js");
-        const { registerContactTools } = await import("./tools/contacts.js");
-        const { registerDocumentTools } = await import("./tools/documents.js");
-        const { registerFolderTools } = await import("./tools/folders.js");
-        const { registerCustomFieldTools } = await import("./tools/customFields.js");
-        const { registerRelationshipTools } = await import("./tools/relationships.js");
-        const { registerActivitySummaryTools } = await import("./tools/activitySummary.js");
-        const { registerTaskTools } = await import("./tools/tasks.js");
-        const { registerCalendarTools } = await import("./tools/calendar.js");
-        const { registerActivityTools } = await import("./tools/activities.js");
-        const { registerBillingTools } = await import("./tools/billing.js");
-        const { registerNoteTools } = await import("./tools/notes.js");
-        const { registerUserTools } = await import("./tools/users.js");
-        const { registerAuditExportTool } = await import("./tools/auditExport.js");
 
         const server = new McpServer({ name: "clio-mcp", version: pkg.version });
-        registerAuthTools(server);
-        registerResources(server);
-        registerMatterTools(server);
-        registerContactTools(server);
-        registerDocumentTools(server);
-        registerFolderTools(server);
-        registerCustomFieldTools(server);
-        registerRelationshipTools(server);
-        registerActivitySummaryTools(server);
-        registerTaskTools(server);
-        registerCalendarTools(server);
-        registerActivityTools(server);
-        registerBillingTools(server);
-        registerNoteTools(server);
-        registerUserTools(server);
-        registerAuditExportTool(server);
+        registerAllTools(server, { readOnly });
 
         const transport = new StdioServerTransport();
         await server.connect(transport);
@@ -83,7 +59,7 @@ async function main() {
             catch (err: any) { return fatal(err.message); }
         })();
         const { startHttpServer } = await import("./server/http.js");
-        startHttpServer(auth);
+        startHttpServer(auth, { readOnly });
     }
 }
 

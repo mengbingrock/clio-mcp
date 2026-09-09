@@ -149,7 +149,7 @@ export function registerActivityTools(server: McpServer): void {
         if (activity_description_id !== undefined) activityData["activity_description"] = { id: activity_description_id };
         if (user_id !== undefined)               activityData["user"] = { id: user_id };
 
-        const data = await clioPost(`/activities.json?fields=${encodeURIComponent(ACTIVITY_FIELDS)}`, { data: activityData });
+        const data = await clioPost("/activities.json", { data: activityData }, { fields: ACTIVITY_FIELDS });
         const entry = data.data;
         const recordedTimeVerification = task_id !== undefined
           ? await verifyTaskRecordedTime(task_id, entry.id)
@@ -252,7 +252,7 @@ export function registerActivityTools(server: McpServer): void {
         if (reference !== undefined)               activityData["reference"] = reference;
         if (tax_setting !== undefined)             activityData["tax_setting"] = tax_setting;
 
-        const data = await clioPost(`/activities.json?fields=${encodeURIComponent(ACTIVITY_FIELDS)}`, { data: activityData });
+        const data = await clioPost("/activities.json", { data: activityData }, { fields: ACTIVITY_FIELDS });
         const entry = data.data;
         const recordedTimeVerification = task_id !== undefined
           ? await verifyTaskRecordedTime(task_id, entry.id)

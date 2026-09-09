@@ -1,19 +1,42 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
-import { clioGet, clioPost, clioPatch, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
+import { clioGet, clioGetWithFieldFallback, clioPost, clioPatch, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 import {
-  CUSTOM_FIELD_VALUE_DETAIL_FIELDS,
+  CUSTOM_FIELD_VALUE_FIELDS,
+  CUSTOM_FIELD_STRIPPED_WARNING,
+  MappedCustomField,
   mapCustomFieldValues,
+  resolvePicklistLabelsFor,
+  hasStrippedCustomFieldValues,
   buildCustomFieldWrites,
   customFieldIdsForAudit,
 } from "../utils/customFields.js";
 
-const MATTER_LIST_FIELDS =
+/**
+ * Everything the connector asked for before 2.2.0's custom field work, which is
+ * what a rejected `fields` selection falls back to. `matter_stage` is
+ * deliberately NOT in here: it is a newer association name that has not been
+ * exercised against a live account, so if Clio does not know it the fallback has
+ * somewhere safe to land.
+ */
+const MATTER_LIST_BASE_FIELDS =
   "id,display_number,description,status,client{id,name},practice_area{id,name},open_date,close_date";
+const MATTER_LIST_FIELDS =
+  `${MATTER_LIST_BASE_FIELDS},matter_stage{id,name},${CUSTOM_FIELD_VALUE_FIELDS}`;
 
+const MATTER_DETAIL_BASE_FIELDS =
+  "id,display_number,description,status,client{id,name},practice_area{id,name},open_date,close_date,billable,maildrop_address";
 const MATTER_DETAIL_FIELDS =
-  `id,display_number,description,status,client{id,name},practice_area{id,name},open_date,close_date,billable,maildrop_address,${CUSTOM_FIELD_VALUE_DETAIL_FIELDS}`;
+  `${MATTER_DETAIL_BASE_FIELDS},matter_stage{id,name},${CUSTOM_FIELD_VALUE_FIELDS}`;
+
+/** Warnings that belong on a matter response, given what came back on it. */
+async function customFieldNotes(groups: MappedCustomField[][]): Promise<Record<string, string>> {
+  await resolvePicklistLabelsFor(groups, "Matter");
+  return groups.some(hasStrippedCustomFieldValues)
+    ? { custom_fields_warning: CUSTOM_FIELD_STRIPPED_WARNING }
+    : {};
+}
 
 const CUSTOM_FIELD_VALUE_SCHEMA = z.object({
   custom_field_id: z.number().int().positive().describe("Clio custom field definition ID (see list_custom_fields)"),
@@ -21,7 +44,15 @@ const CUSTOM_FIELD_VALUE_SCHEMA = z.object({
     .union([z.string().min(1), z.number().finite(), z.boolean()])
     .optional()
     .describe("Value to set. For a picklist field this is the option ID, which list_custom_fields returns under picklist_options."),
-  clear: z.boolean().optional().describe("Remove this field's existing value instead of setting one"),
+  clear: z
+    .boolean()
+    .optional()
+    .describe(
+      "Remove this field's existing value instead of setting one. This deletes the value record " +
+        "entirely (not just blanks it), so the field will no longer appear at all in Clio's UI or in " +
+        "this tool's output until a new value is set - unlike a field that was simply never touched, " +
+        "which Clio may still show with an empty placeholder."
+    ),
 });
 
 const CUSTOM_FIELD_VALUES_SCHEMA = z
@@ -51,27 +82,37 @@ export function registerMatterTools(server: McpServer): void {
         if (status) params["status"] = status;
         if (page_token) params["page_token"] = page_token;
 
-        const data = await clioGet("/matters.json", params);
+        const { body: data, fields_warning } = await clioGetWithFieldFallback(
+          "/matters.json",
+          params,
+          MATTER_LIST_BASE_FIELDS
+        );
         const matters = data.data as any[];
         const nextPageToken = matters.length >= limit ? extractNextPageToken(data.meta) : null;
 
         await appendAuditLog({ tool: "list_matters", args: { status, limit, page_token }, outcome: "success", result_count: matters?.length ?? 0 });
 
+        const customFields = matters.map((m) => mapCustomFieldValues(m.custom_field_values));
+        const notes = await customFieldNotes(customFields);
+
         const result = {
-          matters: matters.map((m) => ({
+          matters: matters.map((m, i) => ({
             id: m.id,
             display_number: m.display_number,
             description: m.description,
             status: m.status,
             client: m.client?.name ?? null,
             practice_area: m.practice_area?.name ?? null,
+            matter_stage: m.matter_stage?.name ?? null,
             open_date: m.open_date,
             close_date: m.close_date ?? null,
-            custom_fields: mapCustomFieldValues(m.custom_field_values),
+            custom_fields: customFields[i],
           })),
           total_count: data.meta?.records ?? matters.length,
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,
+          ...notes,
+          ...(fields_warning && { fields_warning }),
         };
 
         return {
@@ -97,8 +138,15 @@ export function registerMatterTools(server: McpServer): void {
     },
     async ({ matter_id }) => {
       try {
-        const data = await clioGet(`/matters/${matter_id}.json`, { fields: MATTER_DETAIL_FIELDS });
+        const { body: data, fields_warning } = await clioGetWithFieldFallback(
+          `/matters/${matter_id}.json`,
+          { fields: MATTER_DETAIL_FIELDS },
+          MATTER_DETAIL_BASE_FIELDS
+        );
         const m = data.data;
+
+        const customFields = mapCustomFieldValues(m.custom_field_values);
+        const notes = await customFieldNotes([customFields]);
 
         const result = {
           id: m.id,
@@ -107,11 +155,14 @@ export function registerMatterTools(server: McpServer): void {
           status: m.status,
           client: m.client ? { id: m.client.id, name: m.client.name } : null,
           practice_area: m.practice_area ? { id: m.practice_area.id, name: m.practice_area.name } : null,
+          matter_stage: m.matter_stage ? { id: m.matter_stage.id, name: m.matter_stage.name } : null,
           open_date: m.open_date,
           close_date: m.close_date ?? null,
           billable: m.billable,
           maildrop_address: m.maildrop_address ?? null,
-          custom_fields: mapCustomFieldValues(m.custom_field_values),
+          custom_fields: customFields,
+          ...notes,
+          ...(fields_warning && { fields_warning }),
         };
 
         await appendAuditLog({ tool: "get_matter", args: { matter_id }, outcome: "success", matter_id });
@@ -141,6 +192,7 @@ export function registerMatterTools(server: McpServer): void {
         client_id: z.number().int().positive().describe("Clio contact ID of the client for this matter"),
         description: z.string().min(1).describe("Matter subject / description"),
         practice_area_id: z.number().int().positive().optional().describe("Clio practice area ID"),
+        matter_stage_id: z.number().int().positive().optional().describe("Clio matter stage ID (see list_matter_stages). Whether setting this through the API fires the Clio workflows and tasks attached to that stage is unverified; confirm on one matter before relying on it"),
         status: z.enum(["open", "pending", "closed"]).default("open").describe("Initial matter status"),
         open_date: z.string().date().optional().describe("Open date (YYYY-MM-DD); defaults to today if omitted"),
         billable: z.boolean().default(true).describe("Whether this matter is billable (default true)"),
@@ -150,7 +202,7 @@ export function registerMatterTools(server: McpServer): void {
         custom_field_values: CUSTOM_FIELD_VALUES_SCHEMA,
       },
     },
-    async ({ client_id, description, practice_area_id, status, open_date,
+    async ({ client_id, description, practice_area_id, matter_stage_id, status, open_date,
              billable, responsible_attorney_id, originating_attorney_id, client_reference, custom_field_values }) => {
       try {
         const _d = new Date();
@@ -163,23 +215,27 @@ export function registerMatterTools(server: McpServer): void {
           open_date: open_date ?? todayLocal,
         };
         if (practice_area_id) matterData["practice_area"] = { id: practice_area_id };
+        if (matter_stage_id) matterData["matter_stage"] = { id: matter_stage_id };
         if (responsible_attorney_id) matterData["responsible_attorney"] = { id: responsible_attorney_id };
         if (originating_attorney_id) matterData["originating_attorney"] = { id: originating_attorney_id };
         if (client_reference) matterData["client_reference"] = client_reference;
         // A matter being created has no existing values, so every write is a create.
         if (custom_field_values) matterData["custom_field_values"] = buildCustomFieldWrites(custom_field_values, []);
 
-        const data = await clioPost("/matters.json", { data: matterData });
+        const data = await clioPost("/matters.json", { data: matterData }, { fields: MATTER_DETAIL_FIELDS });
         const m = data.data;
 
         await appendAuditLog({
           tool: "create_matter",
-          args: { client_id, practice_area_id, status, open_date,
+          args: { client_id, practice_area_id, matter_stage_id, status, open_date,
                   billable, responsible_attorney_id, originating_attorney_id,
                   custom_field_ids: customFieldIdsForAudit(custom_field_values) },
           outcome: "success",
           matter_id: m.id,
         });
+
+        const customFields = mapCustomFieldValues(m.custom_field_values);
+        const notes = await customFieldNotes([customFields]);
 
         return {
           content: [{
@@ -194,17 +250,19 @@ export function registerMatterTools(server: McpServer): void {
                 billable: m.billable ?? billable,
                 client: m.client ? { id: m.client.id, name: m.client.name } : null,
                 practice_area: m.practice_area ? { id: m.practice_area.id, name: m.practice_area.name } : null,
+                matter_stage: m.matter_stage ? { id: m.matter_stage.id, name: m.matter_stage.name } : null,
                 responsible_attorney: m.responsible_attorney ? { id: m.responsible_attorney.id, name: m.responsible_attorney.name } : null,
                 originating_attorney: m.originating_attorney ? { id: m.originating_attorney.id, name: m.originating_attorney.name } : null,
                 client_reference: m.client_reference ?? client_reference ?? null,
                 open_date: m.open_date,
-                custom_fields: mapCustomFieldValues(m.custom_field_values),
+                custom_fields: customFields,
+                ...notes,
               },
             }, null, 2),
           }],
         };
       } catch (err: any) {
-        const auditArgs = { client_id, practice_area_id, status, open_date,
+        const auditArgs = { client_id, practice_area_id, matter_stage_id, status, open_date,
                             billable, responsible_attorney_id, originating_attorney_id,
                             custom_field_ids: customFieldIdsForAudit(custom_field_values) };
         if (err instanceof ClioApiError && err.statusCode === 422) {
@@ -232,6 +290,7 @@ export function registerMatterTools(server: McpServer): void {
         client_id: z.number().int().positive().optional().describe("Clio contact ID of the client for this matter"),
         description: z.string().min(1).optional().describe("Matter subject / description"),
         practice_area_id: z.number().int().positive().optional().describe("Clio practice area ID"),
+        matter_stage_id: z.number().int().positive().optional().describe("Clio matter stage ID (see list_matter_stages). Whether setting this through the API fires the Clio workflows and tasks attached to that stage is unverified; confirm on one matter before relying on it"),
         status: z.enum(["open", "pending", "closed"]).optional().describe("New matter status"),
         open_date: z.string().date().optional().describe("Open date (YYYY-MM-DD)"),
         billable: z.boolean().optional().describe("Whether this matter is billable"),
@@ -241,9 +300,9 @@ export function registerMatterTools(server: McpServer): void {
         custom_field_values: CUSTOM_FIELD_VALUES_SCHEMA,
       },
     },
-    async ({ matter_id, client_id, description, practice_area_id, status, open_date,
+    async ({ matter_id, client_id, description, practice_area_id, matter_stage_id, status, open_date,
              billable, responsible_attorney_id, originating_attorney_id, client_reference, custom_field_values }) => {
-      if ([client_id, description, practice_area_id, status, open_date, billable,
+      if ([client_id, description, practice_area_id, matter_stage_id, status, open_date, billable,
            responsible_attorney_id, originating_attorney_id, client_reference, custom_field_values]
             .every((v) => v === undefined)) {
         return {
@@ -256,6 +315,7 @@ export function registerMatterTools(server: McpServer): void {
         if (client_id !== undefined) matterData["client"] = { id: client_id };
         if (description !== undefined) matterData["description"] = description;
         if (practice_area_id !== undefined) matterData["practice_area"] = { id: practice_area_id };
+        if (matter_stage_id !== undefined) matterData["matter_stage"] = { id: matter_stage_id };
         if (status !== undefined) matterData["status"] = status;
         if (open_date !== undefined) matterData["open_date"] = open_date;
         if (billable !== undefined) matterData["billable"] = billable;
@@ -267,24 +327,32 @@ export function registerMatterTools(server: McpServer): void {
           // Clio addresses an existing custom field value by its own composite id
           // and a brand-new one by the field definition id. Which shape applies is
           // a property of the record, not of the request, so read before writing.
-          const current = await clioGet(`/matters/${matter_id}.json`, { fields: `id,${CUSTOM_FIELD_VALUE_DETAIL_FIELDS}` });
+          //
+          // Plain clioGet on purpose: clioGetWithFieldFallback would answer a
+          // rejected field selection by dropping the custom field expansion, and
+          // then every field here would look new and be written with the wrong
+          // shape. A read that decides a write has to fail loudly.
+          const current = await clioGet(`/matters/${matter_id}.json`, { fields: `id,${CUSTOM_FIELD_VALUE_FIELDS}` });
           matterData["custom_field_values"] = buildCustomFieldWrites(
             custom_field_values,
             mapCustomFieldValues(current?.data?.custom_field_values)
           );
         }
 
-        const data = await clioPatch(`/matters/${matter_id}.json`, { data: matterData });
+        const data = await clioPatch(`/matters/${matter_id}.json`, { data: matterData }, { fields: MATTER_DETAIL_FIELDS });
         const m = data.data;
 
         await appendAuditLog({
           tool: "update_matter",
-          args: { matter_id, client_id, practice_area_id, status, open_date,
+          args: { matter_id, client_id, practice_area_id, matter_stage_id, status, open_date,
                   billable, responsible_attorney_id, originating_attorney_id,
                   custom_field_ids: customFieldIdsForAudit(custom_field_values) },
           outcome: "success",
           matter_id,
         });
+
+        const customFields = mapCustomFieldValues(m.custom_field_values);
+        const notes = await customFieldNotes([customFields]);
 
         return {
           content: [{
@@ -299,17 +367,19 @@ export function registerMatterTools(server: McpServer): void {
                 billable: m.billable,
                 client: m.client ? { id: m.client.id, name: m.client.name } : null,
                 practice_area: m.practice_area ? { id: m.practice_area.id, name: m.practice_area.name } : null,
+                matter_stage: m.matter_stage ? { id: m.matter_stage.id, name: m.matter_stage.name } : null,
                 responsible_attorney: m.responsible_attorney ? { id: m.responsible_attorney.id, name: m.responsible_attorney.name } : null,
                 originating_attorney: m.originating_attorney ? { id: m.originating_attorney.id, name: m.originating_attorney.name } : null,
                 client_reference: m.client_reference ?? null,
                 open_date: m.open_date,
-                custom_fields: mapCustomFieldValues(m.custom_field_values),
+                custom_fields: customFields,
+                ...notes,
               },
             }, null, 2),
           }],
         };
       } catch (err: any) {
-        const auditArgs = { matter_id, client_id, practice_area_id, status, open_date,
+        const auditArgs = { matter_id, client_id, practice_area_id, matter_stage_id, status, open_date,
                              billable, responsible_attorney_id, originating_attorney_id,
                              custom_field_ids: customFieldIdsForAudit(custom_field_values) };
         if (err instanceof ClioApiError && err.statusCode === 422) {

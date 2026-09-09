@@ -177,7 +177,11 @@ describe("update_document", () => {
     const result = await handlers["update_document"]({ document_id: 500, name: "renamed.pdf" }) as any;
     const parsed = JSON.parse(result.content[0].text);
 
-    expect(mockClioPatch).toHaveBeenCalledWith("/documents/500.json", { data: { name: "renamed.pdf" } });
+    expect(mockClioPatch).toHaveBeenCalledWith(
+      "/documents/500.json",
+      { data: { name: "renamed.pdf" } },
+      expect.objectContaining({ fields: expect.stringContaining("parent") }),
+    );
     expect(parsed.name).toBe("renamed.pdf");
     expect(parsed.parent_folder.id).toBe(100);
     expect(parsed.parent_verified).toBeNull();
@@ -196,7 +200,7 @@ describe("update_document", () => {
 
     expect(mockClioPatch).toHaveBeenCalledWith("/documents/500.json", {
       data: { parent: { id: 100, type: "Folder" } },
-    });
+    }, expect.objectContaining({ fields: expect.stringContaining("parent") }));
     expect(parsed.parent_verified).toBe(true);
   });
 
@@ -209,7 +213,7 @@ describe("update_document", () => {
 
     expect(mockClioPatch).toHaveBeenCalledWith("/documents/500.json", {
       data: { parent: { id: 42, type: "Matter" } },
-    });
+    }, expect.objectContaining({ fields: expect.stringContaining("parent") }));
     expect(parsed.parent_verified).toBe(true);
   });
 

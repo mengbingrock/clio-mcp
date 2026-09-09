@@ -17,6 +17,160 @@ All notable changes to this project are documented here. The format follows [Kee
   continues to accept and return minutes, but now converts minutes to seconds
   on create/update and seconds to minutes on reads.
 
+## [2.3.0] - 2026-09-07
+
+Matter stages and `create_custom_field`, previously staged and unverified,
+have now been exercised end-to-end against a live Clio account (EU region),
+alongside three bugs the same pass turned up. Each item below says what was
+confirmed against that account rather than inferred from Clio's docs.
+
+### Added
+- **Matter stages.** `list_matter_stages` returns the firm's own pipeline
+  (Pre-Suit, Discovery, Settlement) grouped by practice area and in order, and
+  `matter_stage` now comes back on `list_matters` and `get_matter` while
+  `matter_stage_id` can be set through `create_matter` and `update_matter`.
+  Confirmed live, including that Clio requires `practice_area_id` to already
+  match the stage's practice area on a write — setting a stage from a
+  different practice area fails cleanly with a 422 rather than silently
+  applying. For most firms the stage is the field that says what a matter
+  needs next. Clio can attach workflows and task lists to a stage; whether an
+  API-driven stage change fires them is **not verified** and the tool
+  descriptions say so rather than implying it works.
+- **`create_custom_field`** creates a new custom field definition (Matter or
+  Contact) on the connected account, closing the gap where the connector could
+  only set values on fields that already existed. The returned `id` works
+  immediately as `custom_field_id` in `create_matter` / `update_matter`,
+  confirmed live for all seven field types including picklist. A 403 from it
+  is explained the same way `list_custom_fields` explains one.
+
+### Fixed
+- **Ten write tools reported writes that had actually succeeded as if they'd
+  failed.** `clioPost`/`clioPatch` never accepted a `fields` query parameter,
+  so every write endpoint fell back to Clio's minimal default response and
+  handlers reading back nested fields (`client`, `practice_area`,
+  `matter_stage`, `custom_fields`, and similar) got `undefined` instead of the
+  real values. The underlying write was correct every time — only each tool's
+  own confirmation was wrong. Affects `create_matter`, `update_matter`,
+  `create_custom_field`, `create_note`, `create_calendar_entry`,
+  `log_time_entry`, `create_activity`, `create_task`, `update_task`,
+  `complete_task`.
+- **`list_matter_relationships` failed on every call.** It requested a bare
+  `type` field that Clio's API rejects outright (`400 ... type is not a valid
+  field`), so the tool never returned data. `description` is the field that
+  actually carries the relationship's role label; `type` is no longer
+  requested.
+- **`create_folder`'s `if_not_exists` could create a duplicate.** It looked up
+  an existing folder by name using Clio's `query=` search parameter, which
+  lags a few seconds behind a just-created folder. Calling `create_folder`
+  twice in quick succession with `if_not_exists: true` could create two
+  folders with the same name. The lookup now lists the parent folder's
+  contents directly and matches the name client-side instead of relying on
+  the search index.
+- README and `server.json` said 34 tools and undercounted the write tools;
+  the connector exposes 36 tools (24 read / 12 write), and the read-only-mode
+  documentation now lists all twelve write tools it hides.
+
+## [2.2.1] - 2026-09-07
+
+A hotfix. 2.2.0 could not read a matter or a contact at all, and it was the
+default install for five days.
+
+### Fixed
+- **Every matter and contact read returned a Clio 400.** `list_matters`,
+  `get_matter`, `search_contacts`, `get_contact` and the read-back inside
+  `create_matter` and `update_matter` all embed one shared `fields` string, and
+  that string asked for `custom_field_values{...,custom_field{id},picklist_option{id,option}}`.
+  Clio does not accept a second level of brace nesting there and answered
+  `400 ... picklist_option} is not a valid field` for the whole request. Both
+  associations are now requested bare. Reported by a firm running 2.2.0 against
+  a live account on the day it shipped, with the cause correctly diagnosed;
+  thank you.
+- **A picklist can no longer be shown as its option id.** Clio returns the
+  selected option's id in `value`, and whether the label arrives alongside it
+  depends on behaviour we cannot verify without a live account. So the label is
+  taken from the response when it is there, otherwise from one read of the field
+  definitions, and if neither works `display_value` is `null` with
+  `label_unresolved: true` rather than a number a lawyer has never seen. The
+  definitions are read once per response, only when something needs it, and are
+  deliberately not cached across calls because the HTTP transport is
+  multi-tenant.
+- **A rejected `fields` string now costs one column instead of the connector.**
+  Reads retry once without the optional expansions and return a
+  `fields_warning` saying the missing fields are missing rather than empty.
+  Reads that feed a write keep failing loudly, because silently dropping the
+  expansion there would change what gets written.
+- **Custom field values that come back stripped are now called out.** On some
+  accounts Clio returns the value's id with `name`, `type` and `value` all null
+  and no error, and the same accounts get a 403 from `/custom_fields.json`.
+  Responses carry a `custom_fields_warning`, and `list_custom_fields` explains
+  the 403 instead of passing Clio's wording through on its own. The cause is
+  **not confirmed** and the README says so; if you hit it, please open an issue.
+- **`matter_activity_summary` fails with advice instead of timing out.** Each of
+  its five account-wide reads now has a page budget, so a book too large for the
+  requested window says which arguments to narrow rather than exceeding the MCP
+  client's request timeout with no output. `lookback_days` is capped at 365 for
+  the same reason, and its description now explains that staleness follows a
+  note's own date rather than its import date.
+- README said the read-only mode hides "nine" write tools. It hides eleven, and
+  the list was missing `update_matter` and `create_folder`.
+
+### Internal
+- The audit-log privacy sweep now derives its arguments from each tool's own
+  input schema and runs against every tool the registry exposes, instead of a
+  hand-written list that a new tool could silently miss.
+- The README's per-section tool counts, the count in the npm description and the
+  read-only write-tool count are checked against the registry in CI. That number
+  has been published wrong three times.
+
+## [2.2.0] - 2026-09-02
+
+Two things a firm's IT or security reviewer asks for, and one that an App
+Directory listing needs.
+
+Promoted to `latest`. Until now the default install was 2.0.1, which is the
+release that writes note subjects, contact search queries and custom field
+values into `~/.clio-mcp/audit.log` in plain text. Leaving that as the version
+new users get by default was the worse of the two risks.
+
+This has not been exercised against a live Clio account on our side. Every tool
+is covered by unit tests and the stdio handshake is verified in all three modes,
+but the first real Clio data it sees will be yours. Report anything that looks
+wrong and we will turn it around quickly.
+
+### Added
+- **Read-only mode.** `READ_ONLY=true` removes every write tool from the
+  server entirely, so they are not present to be approved rather than being
+  refused when called. The distinction matters: until now the only thing
+  standing between a connector and a write was the MCP client's own approval
+  prompt, which belongs to the client and not to us.
+- **Tool registry.** A single `registerAllTools` used by stdio, the built-in
+  HTTP transport, and library consumers, which also injects a title and MCP
+  annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) on every
+  tool. A tool missing from the registry is treated as a write tool, so
+  forgetting to classify a new one fails closed.
+- **Library mode.** `@oktopeak/clio-mcp/lib` exports the Clio OAuth flow and
+  the registry with typings, for hosts that embed the connector and manage
+  their own sessions rather than shelling out to the binary.
+- **Broker OAuth mode.** With `TOKEN_BROKER_URL` set instead of
+  `CLIO_CLIENT_ID` / `CLIO_CLIENT_SECRET`, the connector holds no client
+  secret at all: it keeps a PKCE verifier locally and a hosted broker performs
+  the token exchange. This is what a one-click Clio App Directory install
+  needs. Startup validation knows which credentials each mode requires.
+- `SECURITY.md` and a security contact.
+- CI on every push and pull request, Node 20 and 22: build, type check, tests,
+  and a check that no secret ever reaches a published tarball.
+
+### Changed
+- **Audit arguments are now allowlisted rather than denylisted.** Only the
+  keys named per tool are written verbatim; anything else present becomes
+  `[redacted]`, and an unknown tool has every key redacted. The previous
+  approach masked a fixed list of secret names and copied everything else
+  through, which is the wrong default for a log that sits next to client data.
+- `DERIVED_AUDIT_KEYS` records the one deliberate exception: a tool may log a
+  summary of an argument rather than the argument, as `update_matter` logs
+  which custom fields it touched without logging what they were set to. Tests
+  require every such key to be id- or count-shaped and to actually be used.
+
 ## [2.1.0-beta.1] - 2026-09-01
 
 Custom fields and notes are the two things firms asked for most often, and the two
@@ -89,11 +243,25 @@ that reason; `latest` stays on 2.0.1.
 
 
 ### Added
+- `READ_ONLY=true|1|yes` leaves the nine write tools unregistered on both transports, so Claude can read Clio but never change it. A server-side guarantee: the tools are absent from `tools/list` and a call to one is rejected.
+- Every tool now carries a `title` and MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
+- `src/tools/index.ts`: one registry (`registerAllTools`, `TOOL_META`, `WRITE_TOOLS`) used by the stdio and HTTP entry points; new tools must be listed there (`registry.test.ts` enforces it).
+- `SECURITY.md` with the reporting address, response times and scope.
+- Audit log: `user_id` and `request_id` fields for hosted deployments; `configureAudit({ sink, redact })` lets a host replace the file with its own store; `readAuditLog` accepts `user_id` and `session_id` filters.
+- **Library entry point** `@oktopeak/clio-mcp/lib` (also the package default export) with typings: the tool registry, the session-context seam (`runWithSessionContext`, `requireSessionContext`), the audit sink, pure Clio OAuth functions that take explicit credentials and a region (`buildClioAuthorizeUrl`, `exchangeClioCode`, `refreshClioTokens`, `fetchClioWhoAmI`) with PKCE helpers, region helpers that accept a region code, and the Clio HTTP client. See "Using the connector as a library" in the README.
+- `registerAllTools` options `exclude` and `complianceNotice`; `registerResources(server, { complianceNotice })`.
+- CI workflow (Node 20 and 22: build, test, secret scan) and `npm run verify:no-secrets`, which now also runs in `prepublishOnly`.
 - `CLIO_REGION` now accepts `au` (https://au.app.clio.com) and `ca` (https://ca.app.clio.com) in addition to `us` and `eu`, for both the API base URL and the OAuth authorize/token URLs. The region-to-hostname map lives in one place (`src/utils/clioRegion.ts`) and is imported by the API client, the OAuth flow, and the HTTP server.
 - `MCP_ALLOW_UNAUTHENTICATED=true` opt-out for local development of the HTTP transport. Prints a loud warning at startup; must never be used on a public host.
 - Unit tests for the region map, the OAuth URLs per region, and HTTP authentication (startup validation and the per-route gate).
 
 ### Changed
+- **Audit log arguments are now recorded by allowlist.** For each tool only ids, limits, dates, page tokens, enums and booleans are written verbatim; every other argument that was passed appears as `"[redacted]"`. Contact and document search queries, note subjects and bodies, task names and descriptions, calendar summaries, descriptions and locations, matter descriptions and client references, time-entry and activity notes, file paths and file names, and the `list_users` name filter no longer reach the log.
+- `machine_ip` is written in stdio mode only; in HTTP mode (typically a container) it is omitted.
+- `SessionContext.getTokens`, `storeTokens` and `clearTokens` are now async and `setPendingNonce` is optional (only affects code that embeds the connector; the stdio and HTTP modes behave as before). Outside stdio mode a missing session context is now an error instead of a silent fall back to the shared token file.
+- HTTP mode refreshes an expiring Clio token once per session even when several tool calls arrive at the same time; stdio mode coalesces concurrent `getValidAccessToken` calls the same way.
+- `package.json` `main`/`exports` point at the library entry; the `clio-mcp` binary is unchanged.
+- README: the compliance section now states the real write surface (nine write tools, all logged, all removable with `READ_ONLY`) instead of claiming the connector cannot create matters or calendar entries.
 - **Breaking for HTTP mode:** `MCP_API_KEY` is now required when `TRANSPORT=http`. The server refuses to start if the key is missing or shorter than 24 characters. stdio mode is unaffected.
 - The API key check now applies to every HTTP route except `/health` and `/oauth/callback`: all methods on `/mcp` (POST, GET/SSE stream, DELETE) and any unknown path return `401` without a valid key. The comparison is constant-time.
 - An unknown `CLIO_REGION` value now stops startup with an error listing the valid values instead of silently using the US endpoint.

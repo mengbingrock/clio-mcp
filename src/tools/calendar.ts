@@ -232,11 +232,8 @@ export function registerCalendarTools(server: McpServer): void {
         if (send_email_notification !== undefined)   body.send_email_notification = send_email_notification;
         if (attendee_ids?.length)                    body.attendees = attendee_ids.map((id) => ({ id }));
 
-        const data = await clioPost("/calendar_entries.json", { data: body });
-        const entryId = data.data?.id;
-        if (!entryId) throw new Error("Clio created the calendar entry but returned no entry ID for verification");
-        const verified = await clioGet(`/calendar_entries/${entryId}.json`, { fields: CALENDAR_DETAIL_FIELDS });
-        const entry = verified.data as any;
+        const data = await clioPost("/calendar_entries.json", { data: body }, { fields: CALENDAR_DETAIL_FIELDS });
+        const entry = data.data as any;
 
         await appendAuditLog({ tool: "create_calendar_entry", args: { summary, start_at, end_at, calendar_owner_id }, outcome: "success" });
 
@@ -283,9 +280,12 @@ export function registerCalendarTools(server: McpServer): void {
         if (send_email_notification !== undefined) body.send_email_notification = send_email_notification;
         if (attendee_ids !== undefined) body.attendees = attendee_ids.map((id) => ({ id }));
 
-        await clioPatch(`/calendar_entries/${calendar_entry_id}.json`, { data: body });
-        const verified = await clioGet(`/calendar_entries/${calendar_entry_id}.json`, { fields: CALENDAR_DETAIL_FIELDS });
-        const entry = verified.data;
+        const updated = await clioPatch(
+          `/calendar_entries/${calendar_entry_id}.json`,
+          { data: body },
+          { fields: CALENDAR_DETAIL_FIELDS }
+        );
+        const entry = updated.data;
         await appendAuditLog({
           tool: "update_calendar_entry",
           args: { calendar_entry_id, summary_changed: summary !== undefined, start_at, end_at, calendar_owner_id, description_changed: description !== undefined, all_day, matter_id, location_changed: location !== undefined, send_email_notification, attendee_count: attendee_ids?.length },

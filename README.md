@@ -3,9 +3,9 @@
 > ### Built by [Oktopeak](https://oktopeak.com/?utm_source=github&utm_medium=readme&utm_campaign=clio-mcp&utm_content=top-byline): AI transformation & automation for law firms
 > **Digital transformation for legal and healthcare businesses.** We build AI integrations, workflow automation, and custom software your firm owns outright, including this connector. → [Book a 30-min call](https://calendly.com/office-oktopeak/30min?utm_source=github&utm_medium=readme&utm_campaign=clio-mcp&utm_content=top-byline-call)
 
-Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, contacts, documents, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
+Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, custom fields, notes, contacts, documents, folders, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 39 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only: no relay server, no cloud middleman. MIT license, free forever.
+> **TL;DR:** 42 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -40,6 +40,20 @@ Watch Claude pull live data from Clio in under a minute (matters, contacts, task
 
 ---
 
+## Upgrading to 2.2.0
+
+If you installed before September 2026 you are on 2.0.1, and there is one reason to upgrade that is worth stating plainly rather than burying in a changelog.
+
+**2.0.1 writes client data to its audit log.** Contact search queries, note subjects, matter descriptions and custom field values were all recorded verbatim in `~/.clio-mcp/audit.log`. The log is a plain file that nothing rotates. In 2.2.0 audit entries carry ids, counts, dates and page tokens only, enforced by an allowlist rather than a denylist, with a test that fails if any tool ever starts logging content again.
+
+```bash
+npm install -g @oktopeak/clio-mcp@2.2.0   # or just restart Claude Desktop if you use npx
+```
+
+Your existing `~/.clio-mcp/audit.log` still contains whatever the old version put there. It is worth reading before you decide what to do with it.
+
+Also new since 2.0.1: custom fields and notes on matters and contacts, folder tools, matter relationships, a one-call activity summary across open matters, a config-level `READ_ONLY` mode, and full pagination on reads where a short answer would be a wrong one. See [CHANGELOG.md](CHANGELOG.md).
+
 ## Compliance & Security
 
 This section exists because law firms evaluating AI tools have asked the right questions. Here are direct answers.
@@ -52,7 +66,7 @@ ABA Opinion 512 (2023) requires attorneys using AI tools to understand how those
 
 - **No data retention by the connector.** The connector does not store matter data, client names, or any Clio content. It fetches from the API and passes results to Claude. The only thing persisted locally is your authentication token, and that is encrypted (see below).
 
-- **Scope limited to tasks, notes, and document uploads.** The connector can create tasks and notes on matters, and upload documents to matters. It cannot create, edit, or delete matters, contacts, calendar entries, or billing records. This is a deliberate v1 design choice: write access is limited to the operations most useful for AI-assisted legal work while minimising liability.
+- **Fifteen write tools, all logged, all optional.** The connector can create matters, custom fields, notes, tasks, folders, calendar entries, time entries and activities; update matters, tasks, documents and calendar entries; complete tasks; upload documents; and delete calendar entries. It never touches contacts or billing records. Every write is recorded in the audit log, and `READ_ONLY=true` removes all fifteen write tools from the server entirely (see [Read-only mode](#read-only-mode)), so a firm can start with read access and turn writes on when it has decided to.
 
 ### Token security: encryption at rest
 
@@ -67,6 +81,18 @@ Authentication uses Clio's standard OAuth 2.0 flow. You log in through your brow
 ### Local-first architecture
 
 The connector runs entirely on your machine. There is no Clio MCP cloud service, no relay server, no third party in the middle. Your Clio API traffic goes directly from your device to Clio's servers.
+
+This is true for the default setup below, where you register your own Clio developer application. The one-click "listed" install variant (next section) is the one exception, and only for the login step.
+
+### Listed / one-click install variant (App Directory)
+
+If you installed this connector via the Clio App Directory's one-click install instead of registering your own Clio developer application, you're using the *listed variant*. It uses one Clio application owned by Oktopeak, shared across every installing firm, instead of a separate application per firm. That means the application's `client_secret` cannot be distributed to your machine — it lives only on a small hosted token broker Oktopeak operates.
+
+**What that changes, precisely:** matter data flows directly between your machine and Clio; only the login handshake passes through our token service. Every tool call — matters, contacts, documents, tasks, calendar, billing, everything — still goes directly from your machine to Clio's API, exactly as in the BYOC setup above. The broker never sees, stores, or logs any of it; it is only involved for the few seconds it takes to complete the OAuth login (and again, briefly, on token refresh). It stores nothing durable — no tokens, no session data survive past that single handshake.
+
+Full data-flow documentation for security reviewers, including a sequence diagram and what the broker persists versus never persists, is in the token broker's repository: [`docs/DATA_FLOW.md`](https://github.com/oktopeak/clio-mcp-backend/blob/main/docs/DATA_FLOW.md).
+
+Everything else — local AES-256-GCM token encryption, the audit log, and the 42 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 42 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
 
 ---
 
@@ -103,7 +129,7 @@ The connector's own no-retention posture (it stores nothing but your encrypted t
 
 The connector ships as `@oktopeak/clio-mcp` on npm. Like every npm package, the published version can be updated at any time by the maintainer. Standard hygiene applies:
 
-- **Pin versions in production.** Use an exact version such as `@oktopeak/clio-mcp@2.0.1` (the current release in `package.json`) rather than a range like `^2.0.0`. Audit before upgrading.
+- **Pin versions in production.** Use an exact version such as `@oktopeak/clio-mcp@2.2.0` (the current release in `package.json`) rather than a range like `^2.0.0`. Audit before upgrading.
 - **Review the diff.** Every release is a tagged commit on GitHub. Verify changes before pulling a new version into a firm-wide deployment.
 - **Build from source.** If your firm requires it, clone the repo, audit the code, run from your own build artifact. We do not gate any feature behind the npm distribution.
 - **Maintainers.** Published by [Oktopeak](https://oktopeak.com), a public team with public commits and a public npm publisher account. Not anonymous. We respond to security reports at `office@oktopeak.com`.
@@ -291,6 +317,27 @@ Every route that reaches the MCP server returns `401 Unauthorized` without the k
 
 **Local development only:** if you need to run the HTTP server without a key on your own machine, set `MCP_ALLOW_UNAUTHENTICATED=true`. The server starts with a loud warning and every route is open. Never use this on a public host or anywhere other people can reach the port; anyone who can reach the endpoint can drive the connector with your Clio access.
 
+#### Option C — One-click via Clio App Directory
+
+If you installed via the Clio App Directory, there's no developer application to register and no `CLIO_CLIENT_SECRET` to handle — the installer configures this for you. The resulting config uses `TOKEN_BROKER_URL` in place of `CLIO_CLIENT_ID`/`CLIO_CLIENT_SECRET`:
+
+```json
+{
+  "mcpServers": {
+    "clio": {
+      "command": "node",
+      "args": ["/FULL/PATH/TO/clio-mcp/build/index.js"],
+      "env": {
+        "TRANSPORT": "stdio",
+        "TOKEN_BROKER_URL": "https://broker.oktopeak.com"
+      }
+    }
+  }
+}
+```
+
+See [Listed / one-click install variant](#listed--one-click-install-variant-app-directory) above for what this changes about the data flow.
+
 ---
 
 If the file already has other MCP servers configured, add a comma after the last entry and then add the `"clio"` block.
@@ -354,13 +401,20 @@ Claude selects and calls these tools automatically based on your questions. You 
 | `list_matters` | `status` (open/pending/closed), `limit`, `page_token` | Lists matters with optional status filter, including custom field values; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `get_matter` | `matter_id` | Returns full detail for a specific matter, including its Maildrop forwarding address and custom field values |
 | `create_matter` | `client_id`, `description`, `status`, `open_date`, `practice_area_id`, `billable`, `responsible_attorney_id`, `originating_attorney_id`, `client_reference`, `custom_field_values` | Creates a new matter; status defaults to Open, billable defaults to true |
-| `update_matter` | `matter_id`, plus any of `create_matter`'s optional fields | Updates one or more fields on an existing matter, including custom field values |
+| `update_matter` | `matter_id`, plus any of `create_matter`'s optional fields | Updates one or more fields on an existing matter, including its stage and custom field values |
 
-### Custom fields (1 tool)
+### Custom fields (2 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
 | `list_custom_fields` | `parent_type` (Matter/Contact), `include_deleted` | Lists the account's custom field definitions with their types, and for picklist fields their allowed options. Call this before reading or writing custom fields |
+| `create_custom_field` | `name`, `parent_type` (Matter/Contact), `field_type`, `required`, `displayed`, `picklist_options` | Creates a new custom field definition. Use the returned `id` as `custom_field_id` in `create_matter` / `update_matter` to set its value |
+
+### Matter stages (1 tool)
+
+| Tool | Inputs | What it does |
+|---|---|---|
+| `list_matter_stages` | `practice_area_id` | Lists the account's matter stages (Pre-Suit, Discovery, Settlement and so on) grouped by practice area and in pipeline order. Call this before setting `matter_stage_id`. Clio can attach workflows and task lists to a stage; whether an API-driven stage change fires them is not verified, so confirm on one matter before relying on it |
 
 ### Contacts (2 tools)
 
@@ -473,8 +527,9 @@ All settings are passed as environment variables (in your Claude Desktop config 
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `CLIO_CLIENT_ID` | Yes | (none) | Client ID from your Clio developer application |
-| `CLIO_CLIENT_SECRET` | Yes | (none) | Client Secret from your Clio developer application |
+| `CLIO_CLIENT_ID` | Yes (BYO app) | — | Client ID from your Clio developer application. Not used, and not required, in the listed variant. |
+| `CLIO_CLIENT_SECRET` | Yes (BYO app) | — | Client Secret from your Clio developer application. Not used, and not required, in the listed variant. |
+| `TOKEN_BROKER_URL` | Yes (listed variant only) | — | URL of Oktopeak's hosted token broker. Set this INSTEAD OF `CLIO_CLIENT_ID`/`CLIO_CLIENT_SECRET` when installed via the Clio App Directory. See [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). |
 | `TRANSPORT` | No | `http` | `stdio` or `http`. Defaults to `http` at v2.0.0; set to `stdio` for the pre-v2 behavior |
 | `MCP_BASE_URL` | HTTP mode | (none) | Public base URL of this server (e.g. `http://127.0.0.1:3000`). Used for the OAuth redirect |
 | `PORT` | No | `3000` | HTTP listen port (HTTP mode only) |
@@ -486,6 +541,24 @@ All settings are passed as environment variables (in your Claude Desktop config 
 | `CLIO_API_BASE` | No | `<region host>/api/v4` | Advanced override for the API base URL. Takes precedence over `CLIO_REGION` |
 | `CLIO_AUTH_URL` | No | `<region host>/oauth/authorize` | Advanced override for the OAuth authorization endpoint |
 | `CLIO_TOKEN_URL` | No | `<region host>/oauth/token` | Advanced override for the OAuth token endpoint |
+| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the fifteen write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
+
+### Read-only mode
+
+Set `READ_ONLY=true` and the connector never registers its fifteen write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `update_document`, `create_folder`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+
+For Claude Desktop, add it next to the other variables:
+
+```json
+"env": {
+  "CLIO_CLIENT_ID": "...",
+  "CLIO_CLIENT_SECRET": "...",
+  "TRANSPORT": "stdio",
+  "READ_ONLY": "true"
+}
+```
+
+Every tool also carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so clients that honour them can show which calls change data before you approve them.
 
 ### Clio regions
 
@@ -514,16 +587,22 @@ Each entry contains:
 |---|---|
 | `timestamp` | ISO 8601 date and time of the call |
 | `session_id` | Per-session UUID (stable for the life of a stdio process; one per HTTP session) |
-| `machine_ip` | LAN IPv4 address of the host that logged the call, when detectable |
+| `machine_ip` | LAN IPv4 address of the host that logged the call. stdio mode only; inside a container the address means nothing, so it is left out |
+| `user_id` | Caller identity when a hosting service runs the connector for several people. Absent in stdio and single-key HTTP mode |
+| `request_id` | The host's request id, for matching an entry to its request log. Absent unless a host sets it |
 | `tool` | Which tool Claude invoked |
-| `args` | Arguments passed to the tool (secrets are automatically redacted) |
+| `args` | The arguments Claude passed, filtered by an allowlist (see below). Keys that were passed but are not on the list appear as `"[redacted]"` so the record still shows what was sent without containing it |
 | `outcome` | `success`, `error`, or `not_found` |
 | `error_message` | Present only when `outcome` is `error` |
 | `clio_user_id` | The Clio user whose credentials were active |
 | `matter_id` | Present for matter-specific queries |
 | `result_count` | Present for list / export tools: number of records returned |
 
-The log file is append-only and never rotated or truncated by this software. To archive old entries, use your operating system's log rotation tools (`logrotate` on Linux/Mac).
+### What is never written to the log
+
+Arguments are logged by allowlist, not by denylist. For every tool only ids, limits, dates, page tokens, enums and booleans are recorded verbatim; any other argument that was passed is replaced by `"[redacted]"`. Concretely, the log never contains: contact search queries (`search_contacts.query`), document searches (`list_documents.query`), note subjects or bodies, task names or descriptions, calendar summaries, descriptions or locations, matter descriptions or client references, time-entry or activity notes, file paths or file names, or the `list_users` name filter. The full table is `AUDIT_ARG_ALLOWLIST` in `src/utils/auditLog.ts`, and a test fails if a free-text key is ever added to it. Secret-named keys (`access_token`, `client_secret`, `password`, `token`) are masked everywhere, including inside nested objects.
+
+The log file is append-only and never rotated or truncated by this software. To archive old entries, use your operating system's log rotation tools (`logrotate` on Linux/Mac). Hosts that embed the connector as a library can replace the file with their own store through `configureAudit({ sink })`; the record format is the same.
 
 ---
 
@@ -546,6 +625,21 @@ The `logout` command removes your stored token file but not the encryption key f
 
 **Port 5678 is already in use**
 Add `"CLIO_REDIRECT_PORT": "5679"` to the `env` block in your Claude Desktop config, and update your Clio application's redirect URI to `http://127.0.0.1:5679/callback`.
+
+**`list_custom_fields` returns 403 "User is forbidden from taking that action"**
+Some accounts refuse custom field reads even when the connecting user is the account owner and the token works for everything else. When it happens, `/custom_fields.json` returns 403 and the custom field values expanded on matters and contacts come back with an id but no name, type or value, with no error at all. **We still have not reproduced this and the cause is not confirmed** — a live verification pass against a normally-permissioned BYOC developer account (September 2026) got a clean 200 with full data on every call, so this is specific to some other account or permission configuration, not the default path. It is consistent with the connecting Clio user's permission set not covering custom fields, so the first thing to try is having a Clio administrator confirm that user's custom field access and reconnecting (`logout`, then `authenticate`). If that is already in place, please [open an issue](https://github.com/oktopeak/clio-mcp/issues) with your Clio region and the exact response — we would like to get to the bottom of it.
+
+**Custom fields come back with an `id` but `name`, `type` and `value` are `null`**
+Same accounts, same unconfirmed cause, no error this time: Clio drops the expanded attributes silently. The response carries a `custom_fields_warning` when this happens. Treat those fields as unread rather than empty — they are not blank in Clio.
+
+**A custom field disappears entirely instead of showing empty**
+This is expected, not a bug: `clear: true` (on `update_matter`'s `custom_field_values`) deletes the value record itself, not just its value. A field that was simply never set still gets an empty placeholder from Clio (and from this connector) with a real id and `value: null`; a field that was explicitly cleared has no record at all until a new value is set, so both this connector's output and Clio's own UI show nothing for it. If you want a field to keep showing as blank, set an empty-equivalent value instead of clearing it.
+
+**A picklist shows `display_value: null` and `label_unresolved: true`**
+The connector could not put a name to the selected option, so it shows nothing rather than the internal option id. It first uses the label Clio sends with the value, then falls back to one read of your field definitions. Both failing usually means the same permission problem as above.
+
+**A response carries a `fields_warning`**
+Clio rejected part of the field selection, so the request was retried without the optional expansions. The response is real but incomplete, and the missing fields are not necessarily empty in Clio. Please report it with the quoted message.
 
 ---
 
@@ -603,9 +697,42 @@ We're a 7-person in-house product team building AI solutions for regulated indus
 
 ---
 
+## Using the connector as a library
+
+Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 42 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  registerAllTools, runWithSessionContext, configureAudit,
+  buildClioAuthorizeUrl, exchangeClioCode, refreshClioTokens, fetchClioWhoAmI,
+} from "@oktopeak/clio-mcp/lib";
+
+// Once at startup: send audit entries to your store instead of ~/.clio-mcp/audit.log.
+configureAudit({ sink: myAuditSink });
+
+// Per request: register the tools you want to expose, then run the MCP request
+// inside a session context that knows who the caller is and how to get a Clio token.
+const server = new McpServer({ name: "my-host", version: "1.0.0" });
+registerAllTools(server, { readOnly: false, auth: "none", exclude: ["upload_document"], complianceNotice: "..." });
+await runWithSessionContext(
+  {
+    sessionId: requestId,
+    userId, clioUserId, requestId,
+    getAccessToken: () => tokenStore.validAccessToken(userId),   // refresh with refreshClioTokens() as needed
+    getTokens: () => tokenStore.get(userId),
+    storeTokens: (t) => tokenStore.set(userId, t),
+    clearTokens: () => tokenStore.clear(userId),
+  },
+  () => transport.handleRequest(req, res, req.body)
+);
+```
+
+The Clio OAuth functions take explicit credentials and a region (`buildClioAuthorizeUrl`, `exchangeClioCode`, `refreshClioTokens`, `fetchClioWhoAmI`, plus `generateCodeVerifier` / `deriveCodeChallenge` for PKCE); nothing in the library reads `CLIO_CLIENT_ID` from the environment. Outside stdio mode the tools refuse to run without a session context, so a host can never fall back to a shared token file by accident. Types ship with the package (`build/lib.d.ts`); the exported surface is pinned by `src/__tests__/lib.test.ts`.
+
 ## Contributing
 
-Issues and pull requests welcome. If you run into a Clio API edge case this connector does not handle cleanly, open an issue with the scenario and an example request. If you want to add a tool that falls within the "read-only" v1 scope, send a PR.
+Issues and pull requests welcome. If you run into a Clio API edge case this connector does not handle cleanly, open an issue with the scenario and an example request. If you add a tool, register its name in `src/tools/index.ts` (`TOOL_META`, and `WRITE_TOOLS` if it changes Clio data) so the read-only gate and the annotations cover it; `registry.test.ts` fails otherwise.
 
 ---
 

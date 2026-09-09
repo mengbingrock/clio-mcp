@@ -276,7 +276,7 @@ export function registerTaskTools(server: McpServer): void {
         if (notify_completion !== undefined) taskData["notify_completion"] = notify_completion;
         if (permission !== undefined) taskData["permission"] = permission;
 
-        const data = await clioPost("/tasks.json", { data: taskData });
+        const data = await clioPost("/tasks.json", { data: taskData }, { fields: TASK_DETAIL_FIELDS });
         const task = data.data;
 
         await appendAuditLog({
@@ -365,7 +365,7 @@ export function registerTaskTools(server: McpServer): void {
         if (notify_completion !== undefined) taskData["notify_completion"] = notify_completion;
         if (permission !== undefined) taskData["permission"] = permission;
 
-        const data = await clioPatch(`/tasks/${task_id}.json`, { data: taskData });
+        const data = await clioPatch(`/tasks/${task_id}.json`, { data: taskData }, { fields: TASK_DETAIL_FIELDS });
         const task = data.data;
 
         await appendAuditLog({
@@ -422,7 +422,7 @@ export function registerTaskTools(server: McpServer): void {
     },
     async ({ task_id }) => {
       try {
-        const data = await clioPatch(`/tasks/${task_id}.json`, { data: { status: STATUS_MAP["Complete"] } });
+        const data = await clioPatch(`/tasks/${task_id}.json`, { data: { status: STATUS_MAP["Complete"] } }, { fields: TASK_DETAIL_FIELDS });
         const task = data.data;
 
         await appendAuditLog({

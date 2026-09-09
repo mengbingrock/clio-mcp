@@ -1,9 +1,14 @@
 import { getValidAccessToken } from "../auth/oauth.js";
-import { getSessionContext } from "./sessionContext.js";
+import { requireSessionContext } from "./sessionContext.js";
 import { getClioApiBaseUrl } from "./clioRegion.js";
 
+/**
+ * Inside a session the context supplies the token. Outside one, only stdio
+ * mode may read the shared token file; requireSessionContext() throws
+ * everywhere else so a missing context can never leak another user's identity.
+ */
 async function resolveAccessToken(): Promise<string> {
-  const ctx = getSessionContext();
+  const ctx = requireSessionContext();
   if (ctx) return ctx.getAccessToken();
   return getValidAccessToken();
 }
@@ -150,9 +155,12 @@ export async function clioGetAllPages(
   return out;
 }
 
-export async function clioPost(path: string, body: unknown): Promise<any> {
+export async function clioPost(path: string, body: unknown, params?: Record<string, string>): Promise<any> {
   const token = await resolveAccessToken();
   const url = new URL(`${getBase()}${path}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  }
   const res = await clioFetch(url.toString(), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -161,9 +169,12 @@ export async function clioPost(path: string, body: unknown): Promise<any> {
   return res.json();
 }
 
-export async function clioPatch(path: string, body: unknown): Promise<any> {
+export async function clioPatch(path: string, body: unknown, params?: Record<string, string>): Promise<any> {
   const token = await resolveAccessToken();
   const url = new URL(`${getBase()}${path}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  }
   const res = await clioFetch(url.toString(), {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -199,4 +210,51 @@ export async function clioPut(path: string, body: unknown): Promise<any> {
   });
   const text = await res.text();
   return text.trim() ? JSON.parse(text) : {};
+}
+
+/** Result of a read that may have had to drop optional field expansions. */
+export interface FieldFallbackResult {
+  body: any;
+  /** Present only when the first attempt was rejected and the reduced selection was used. */
+  fields_warning?: string;
+}
+
+const INVALID_FIELD_MESSAGE = /is not a valid field/i;
+
+/**
+ * GET with one retry on Clio rejecting the `fields` selection.
+ *
+ * Clio validates `fields` strictly and answers an unknown or badly nested entry
+ * with a 400 for the whole request. Because one shared field string is embedded
+ * in every matter and contact read, a single wrong association name takes out
+ * all of them at once — which is exactly what 2.2.0 shipped. This turns that
+ * class of mistake into a degraded response with a warning attached, so a bad
+ * field selection costs one column instead of the connector.
+ *
+ * Only used for reads whose result is displayed. Reads whose result feeds a
+ * WRITE must not use it: silently dropping expansions there would change what
+ * gets written, so those keep failing loudly.
+ */
+export async function clioGetWithFieldFallback(
+  path: string,
+  params: Record<string, string>,
+  fallbackFields: string
+): Promise<FieldFallbackResult> {
+  try {
+    return { body: await clioGet(path, params) };
+  } catch (err: any) {
+    const rejectedFields =
+      err instanceof ClioApiError && err.statusCode === 400 && INVALID_FIELD_MESSAGE.test(err.message);
+    if (!rejectedFields) throw err;
+
+    const body = await clioGet(path, { ...params, fields: fallbackFields });
+    return {
+      body,
+      fields_warning:
+        "Clio rejected part of this request's field selection, so it was retried without the " +
+        "optional expansions. Some fields, custom fields among them, are missing from this " +
+        "response and are not necessarily empty in Clio. Please report this at " +
+        `https://github.com/oktopeak/clio-mcp/issues quoting: ${err.message}`,
+    };
+  }
 }

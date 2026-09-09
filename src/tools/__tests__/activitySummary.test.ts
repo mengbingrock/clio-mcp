@@ -283,3 +283,40 @@ describe("matter_activity_summary", () => {
     });
   });
 });
+
+describe("page budget", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("bounds every collection read so the call cannot outlive the client's timeout", async () => {
+    mockClioGetAllPages.mockResolvedValue([]);
+    await handlers["matter_activity_summary"](ARGS);
+
+    expect(mockClioGetAllPages).toHaveBeenCalledTimes(5);
+    for (const call of mockClioGetAllPages.mock.calls) {
+      expect(call[2], `${call[0]} was read without a page budget`).toMatchObject({ maxPages: expect.any(Number) });
+    }
+  });
+
+  it("turns a book too large for the window into advice, not a silent timeout", async () => {
+    mockClioGetAllPages.mockRejectedValue(
+      new Error("clioGetAllPages: exceeded maxPages (25) fetching /notes.json — refine filters")
+    );
+
+    const result = await handlers["matter_activity_summary"](ARGS) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/lookback_days/);
+    expect(result.content[0].text).toMatch(/practice_area_id/);
+    // Never a partial answer: this tool decides which matters got dropped, so
+    // half the notes would produce confidently wrong staleness.
+    expect(result.content[0].text).not.toMatch(/partial/i);
+  });
+
+  it("passes other failures through unchanged", async () => {
+    mockClioGetAllPages.mockRejectedValue(new Error("boom"));
+    const result = await handlers["matter_activity_summary"](ARGS) as any;
+    expect(result.content[0].text).toBe("Error: boom");
+  });
+});

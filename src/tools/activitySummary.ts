@@ -20,6 +20,16 @@ import { appendAuditLog } from "../utils/auditLog.js";
  * book on a schedule.
  */
 
+/**
+ * Page budget per collection. Five collections are read in parallel and the
+ * whole tool has to answer inside an MCP client's request timeout (60s in Claude
+ * Desktop). A firm large enough to blow past this gets a clear error naming the
+ * knobs that shrink the window, rather than a client-side timeout with no
+ * output, and never a truncated answer: this tool decides which matters got
+ * dropped, so partial data would be worse than none.
+ */
+const SUMMARY_MAX_PAGES = 25;
+
 const SUMMARY_MATTER_FIELDS = "id,display_number,description,status,client{id,name}";
 const SUMMARY_NOTE_FIELDS = "id,date,created_at,matter{id}";
 const SUMMARY_ACTIVITY_FIELDS = "id,date,matter{id}";
@@ -77,9 +87,15 @@ export function registerActivitySummaryTools(server: McpServer): void {
           .number()
           .int()
           .min(1)
-          .max(3650)
+          .max(365)
           .default(90)
-          .describe("How far back to look for notes and time entries. A matter with nothing in this window reports null and counts as maximally stale."),
+          .describe(
+            "How far back to look for notes and time entries. A matter with nothing in this window reports " +
+              "null and counts as maximally stale. Staleness uses a note's own date, not when it was imported, " +
+              "so a note created inside the window but dated years earlier can push days_since_last_activity " +
+              "well past lookback_days; that is the event date doing its job, not a bug. Capped at 365 because " +
+              "longer windows on a large book have been seen to exceed an MCP client's request timeout."
+          ),
         calendar_days_ahead: z
           .number()
           .int()
@@ -120,26 +136,38 @@ export function registerActivitySummaryTools(server: McpServer): void {
         if (practice_area_id) matterParams["practice_area_id"] = String(practice_area_id);
 
         // Five account-wide reads, not five per matter.
+        const readAll = (path: string, params: Record<string, string>) =>
+          clioGetAllPages(path, params, { maxPages: SUMMARY_MAX_PAGES }).catch((err: any) => {
+            if (typeof err?.message === "string" && err.message.includes("exceeded maxPages")) {
+              throw new Error(
+                `This account has more ${path.replace(/^\/|\.json$/g, "")} in the requested window than one ` +
+                  `summary call can read (over ${SUMMARY_MAX_PAGES * 200} records). Narrow it with a smaller ` +
+                  `lookback_days, a smaller calendar_days_ahead, or a practice_area_id, and run it again.`
+              );
+            }
+            throw err;
+          });
+
         const [matters, notes, activities, calendarEntries, tasks] = await Promise.all([
-          clioGetAllPages("/matters.json", matterParams),
-          clioGetAllPages("/notes.json", {
+          readAll("/matters.json", matterParams),
+          readAll("/notes.json", {
             fields: SUMMARY_NOTE_FIELDS,
             type: "matter",
             created_since: since,
             limit: "200",
           }),
-          clioGetAllPages("/activities.json", {
+          readAll("/activities.json", {
             fields: SUMMARY_ACTIVITY_FIELDS,
             start_date: sinceDate,
             limit: "200",
           }),
-          clioGetAllPages("/calendar_entries.json", {
+          readAll("/calendar_entries.json", {
             fields: SUMMARY_CALENDAR_FIELDS,
             from: `${todayDate}T00:00:00Z`,
             to: `${aheadDate}T23:59:59Z`,
             limit: "200",
           }),
-          clioGetAllPages("/tasks.json", {
+          readAll("/tasks.json", {
             fields: SUMMARY_TASK_FIELDS,
             status: "pending",
             limit: "200",

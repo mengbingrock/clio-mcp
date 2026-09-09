@@ -269,7 +269,7 @@ describe("create_task", () => {
         notify_completion: true,
         permission: "private",
       }),
-    });
+    }, expect.anything());
   });
 
   it("passes legacy due_date as a date without inventing UTC midnight", async () => {
@@ -279,6 +279,7 @@ describe("create_task", () => {
     expect(mockClioPost).toHaveBeenCalledWith(
       "/tasks.json",
       expect.objectContaining({ data: expect.objectContaining({ due_at: "2026-09-05" }) }),
+      expect.anything(),
     );
   });
 
@@ -314,6 +315,7 @@ describe("update_task", () => {
     expect(mockClioPatch).toHaveBeenCalledWith(
       "/tasks/1.json",
       expect.objectContaining({ data: expect.objectContaining({ status: "complete" }) }),
+      expect.anything(),
     );
   });
 
@@ -324,6 +326,7 @@ describe("update_task", () => {
     expect(mockClioPatch).toHaveBeenCalledWith(
       "/tasks/1.json",
       expect.objectContaining({ data: expect.objectContaining({ status: "in_progress" }) }),
+      expect.anything(),
     );
   });
 
@@ -334,6 +337,7 @@ describe("update_task", () => {
     expect(mockClioPatch).toHaveBeenCalledWith(
       "/tasks/1.json",
       expect.objectContaining({ data: expect.objectContaining({ due_at: "2026-01-15" }) }),
+      expect.anything(),
     );
   });
 
@@ -361,6 +365,7 @@ describe("update_task", () => {
           permission: "public",
         }),
       }),
+      expect.anything(),
     );
   });
 
@@ -378,6 +383,7 @@ describe("update_task", () => {
     expect(mockClioPatch).toHaveBeenCalledWith(
       "/tasks/1.json",
       expect.objectContaining({ data: expect.objectContaining({ assignee: { id: 42, type: "User" } }) }),
+      expect.anything(),
     );
   });
 
@@ -416,7 +422,7 @@ describe("complete_task", () => {
     mockClioPatch.mockResolvedValue({ data: TASK_FIXTURE });
     const handler = handlers.get("complete_task")!;
     await handler({ task_id: 1 });
-    expect(mockClioPatch).toHaveBeenCalledWith("/tasks/1.json", { data: { status: "complete" } });
+    expect(mockClioPatch).toHaveBeenCalledWith("/tasks/1.json", { data: { status: "complete" } }, expect.anything());
   });
 
   it("returns task shape with id, name, status, and completed_at", async () => {

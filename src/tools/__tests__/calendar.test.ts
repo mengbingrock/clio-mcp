@@ -256,9 +256,7 @@ describe("create_calendar_entry", () => {
         calendar_owner: { id: 7 },
         matter: { id: 42 },
       }),
-    });
-    expect(mockClioGet).toHaveBeenCalledWith(
-      "/calendar_entries/1.json",
+    },
       expect.objectContaining({ fields: expect.stringContaining("start_at_time_zone") }),
     );
   });
@@ -288,9 +286,7 @@ describe("update_calendar_entry", () => {
         end_at: "2026-06-02T22:00:00.000Z",
         send_email_notification: false,
       },
-    });
-    expect(mockClioGet).toHaveBeenCalledWith(
-      "/calendar_entries/1.json",
+    },
       expect.objectContaining({ fields: expect.stringContaining("start_at_time_zone") }),
     );
   });
