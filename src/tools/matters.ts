@@ -44,7 +44,15 @@ const CUSTOM_FIELD_VALUE_SCHEMA = z.object({
     .union([z.string().min(1), z.number().finite(), z.boolean()])
     .optional()
     .describe("Value to set. For a picklist field this is the option ID, which list_custom_fields returns under picklist_options."),
-  clear: z.boolean().optional().describe("Remove this field's existing value instead of setting one"),
+  clear: z
+    .boolean()
+    .optional()
+    .describe(
+      "Remove this field's existing value instead of setting one. This deletes the value record " +
+        "entirely (not just blanks it), so the field will no longer appear at all in Clio's UI or in " +
+        "this tool's output until a new value is set - unlike a field that was simply never touched, " +
+        "which Clio may still show with an empty placeholder."
+    ),
 });
 
 const CUSTOM_FIELD_VALUES_SCHEMA = z
@@ -184,7 +192,7 @@ export function registerMatterTools(server: McpServer): void {
         client_id: z.number().int().positive().describe("Clio contact ID of the client for this matter"),
         description: z.string().min(1).describe("Matter subject / description"),
         practice_area_id: z.number().int().positive().optional().describe("Clio practice area ID"),
-        matter_stage_id: z.number().int().positive().optional().describe("Clio matter stage ID (see list_matter_stages). Moving a matter into a stage can trigger the Clio workflows and tasks attached to it"),
+        matter_stage_id: z.number().int().positive().optional().describe("Clio matter stage ID (see list_matter_stages). Whether setting this through the API fires the Clio workflows and tasks attached to that stage is unverified; confirm on one matter before relying on it"),
         status: z.enum(["open", "pending", "closed"]).default("open").describe("Initial matter status"),
         open_date: z.string().date().optional().describe("Open date (YYYY-MM-DD); defaults to today if omitted"),
         billable: z.boolean().default(true).describe("Whether this matter is billable (default true)"),
@@ -214,7 +222,7 @@ export function registerMatterTools(server: McpServer): void {
         // A matter being created has no existing values, so every write is a create.
         if (custom_field_values) matterData["custom_field_values"] = buildCustomFieldWrites(custom_field_values, []);
 
-        const data = await clioPost("/matters.json", { data: matterData });
+        const data = await clioPost("/matters.json", { data: matterData }, { fields: MATTER_DETAIL_FIELDS });
         const m = data.data;
 
         await appendAuditLog({
@@ -282,7 +290,7 @@ export function registerMatterTools(server: McpServer): void {
         client_id: z.number().int().positive().optional().describe("Clio contact ID of the client for this matter"),
         description: z.string().min(1).optional().describe("Matter subject / description"),
         practice_area_id: z.number().int().positive().optional().describe("Clio practice area ID"),
-        matter_stage_id: z.number().int().positive().optional().describe("Clio matter stage ID (see list_matter_stages). Moving a matter to a new stage can trigger the Clio workflows and tasks attached to it"),
+        matter_stage_id: z.number().int().positive().optional().describe("Clio matter stage ID (see list_matter_stages). Whether setting this through the API fires the Clio workflows and tasks attached to that stage is unverified; confirm on one matter before relying on it"),
         status: z.enum(["open", "pending", "closed"]).optional().describe("New matter status"),
         open_date: z.string().date().optional().describe("Open date (YYYY-MM-DD)"),
         billable: z.boolean().optional().describe("Whether this matter is billable"),
@@ -331,7 +339,7 @@ export function registerMatterTools(server: McpServer): void {
           );
         }
 
-        const data = await clioPatch(`/matters/${matter_id}.json`, { data: matterData });
+        const data = await clioPatch(`/matters/${matter_id}.json`, { data: matterData }, { fields: MATTER_DETAIL_FIELDS });
         const m = data.data;
 
         await appendAuditLog({
