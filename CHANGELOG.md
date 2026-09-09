@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- `list_task_types` for discovering existing Task Type IDs, plus `task_type_id`
+  support when listing, creating, and updating tasks.
+- Task-linked time entries. `log_time_entry` and TimeEntry calls through
+  `create_activity` now accept `task_id`, then read the task back and report
+  whether the new entry appears in its Recorded Time. `get_task` also returns
+  the Recorded Time entries, and `list_time_entries` can filter by `task_id`.
+
+### Fixed
+- Task `time_estimated` values are seconds in the Clio API. The MCP interface
+  continues to accept and return minutes, but now converts minutes to seconds
+  on create/update and seconds to minutes on reads.
+
 ## [2.1.0-beta.1] - 2026-09-01
 
 Custom fields and notes are the two things firms asked for most often, and the two

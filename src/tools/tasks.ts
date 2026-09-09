@@ -4,15 +4,26 @@ import { clioGet, clioPost, clioPatch, ClioApiError, extractNextPageToken } from
 import { appendAuditLog } from "../utils/auditLog.js";
 
 const TASK_LIST_FIELDS =
-  "id,name,priority,due_at,status,permission,time_estimated,notify_completion,assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
+  "id,name,priority,due_at,status,permission,time_estimated,notify_completion,task_type{id,name},assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
 const TASK_DETAIL_FIELDS =
-  "id,etag,name,status,description,description_text_type,priority,due_at,permission,completed_at,notify_completion,statute_of_limitations,time_estimated,created_at,updated_at,time_entries_count,task_type{id,name},assigner{id,name},matter{id,display_number},assignee{id,type,name},reminders{id,duration,next_delivery_at,state,created_at,updated_at,notification_method}";
+  "id,etag,name,status,description,description_text_type,priority,due_at,permission,completed_at,notify_completion,statute_of_limitations,time_estimated,created_at,updated_at,time_entries_count,time_entries{id,date,quantity_in_hours,quantity_redacted,price,total,note,non_billable,no_charge},task_type{id,name},assigner{id,name},matter{id,display_number},assignee{id,type,name},reminders{id,duration,next_delivery_at,state,created_at,updated_at,notification_method}";
+const TASK_TYPE_FIELDS = "id,etag,name,deleted_at,created_at,updated_at";
 
 const dueAtSchema = z.string().datetime({ offset: true }).describe(
   "ISO-8601 due timestamp with an explicit UTC offset, e.g. 2026-09-05T17:00:00-07:00 for 5:00 PM Pacific Daylight Time"
 );
 
 const STATUS_MAP: Record<string, string> = { Pending: "pending", Complete: "complete", "In Progress": "in_progress", "In Review": "in_review", "Draft": "draft" };
+
+// Clio's Task API stores time_estimated as seconds. The MCP surface uses
+// minutes because that is how people normally state a task estimate.
+function estimateSecondsToMinutes(seconds: unknown): number | null {
+  return typeof seconds === "number" ? seconds / 60 : null;
+}
+
+function estimateMinutesToSeconds(minutes: number): number {
+  return minutes * 60;
+}
 
 export function registerTaskTools(server: McpServer): void {
   server.registerTool(
@@ -21,6 +32,7 @@ export function registerTaskTools(server: McpServer): void {
       description: "List tasks from Clio with optional filters",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter tasks by matter ID"),
+        task_type_id: z.number().int().positive().optional().describe("Filter tasks by Task Type ID; use list_task_types to discover IDs"),
         status: z.enum(["Pending", "Complete", "In Progress", "In Review", "Draft"]).optional().describe("Filter by task status"),
         due_date_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — tasks due on or after this date"),
         due_date_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — tasks due on or before this date"),
@@ -28,10 +40,11 @@ export function registerTaskTools(server: McpServer): void {
         page_token: z.string().optional().describe("Cursor from a previous list_tasks response to fetch the next page"),
       },
     },
-    async ({ matter_id, status, due_date_start, due_date_end, limit, page_token }) => {
+    async ({ matter_id, task_type_id, status, due_date_start, due_date_end, limit, page_token }) => {
       try {
         const params: Record<string, string> = { fields: TASK_LIST_FIELDS, limit: String(limit) };
         if (matter_id) params["matter_id"] = String(matter_id);
+        if (task_type_id) params["task_type_id"] = String(task_type_id);
         if (status) params["status"] = STATUS_MAP[status];
         if (due_date_start) params["due_at_from"] = due_date_start;
         if (due_date_end) params["due_at_to"] = due_date_end;
@@ -43,7 +56,7 @@ export function registerTaskTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "list_tasks",
-          args: { matter_id, status, due_date_start, due_date_end, limit, page_token },
+          args: { matter_id, task_type_id, status, due_date_start, due_date_end, limit, page_token },
           outcome: "success",
           result_count: tasks?.length ?? 0,
           ...(matter_id && { matter_id }),
@@ -58,8 +71,10 @@ export function registerTaskTools(server: McpServer): void {
             due_date: t.due_at ? t.due_at.substring(0, 10) : null,
             status: t.status,
             permission: t.permission ?? null,
-            time_estimated: t.time_estimated ?? null,
+            time_estimated: estimateSecondsToMinutes(t.time_estimated),
+            time_estimated_unit: "minutes",
             notify_completion: t.notify_completion ?? null,
+            task_type: t.task_type ? { id: t.task_type.id, name: t.task_type.name } : null,
             assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
             matter: t.matter ? { id: t.matter.id, display_number: t.matter.display_number } : null,
             reminder: t.reminders?.length > 0
@@ -75,7 +90,7 @@ export function registerTaskTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "list_tasks",
-          args: { matter_id, status, due_date_start, due_date_end, limit, page_token },
+          args: { matter_id, task_type_id, status, due_date_start, due_date_end, limit, page_token },
           outcome: "error",
           error_message: err.message,
           ...(matter_id && { matter_id }),
@@ -86,9 +101,71 @@ export function registerTaskTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "list_task_types",
+    {
+      description: "List existing Clio Task Types so their IDs can be used when creating, updating, or filtering tasks. Task Types require Clio Advanced Tasks.",
+      inputSchema: {
+        query: z.string().min(1).optional().describe("Wildcard search against the Task Type name"),
+        enabled: z.boolean().default(true).describe("Return enabled Task Types by default; set false to return disabled types"),
+        limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
+        page_token: z.string().optional().describe("Cursor from a previous list_task_types response to fetch the next page"),
+      },
+    },
+    async ({ query, enabled, limit, page_token }) => {
+      try {
+        const params: Record<string, string> = {
+          fields: TASK_TYPE_FIELDS,
+          enabled: String(enabled),
+          limit: String(limit),
+          order: "name(asc)",
+        };
+        if (query) params["query"] = query;
+        if (page_token) params["page_token"] = page_token;
+
+        const data = await clioGet("/task_types.json", params);
+        const taskTypes = data.data as any[];
+        const nextPageToken = taskTypes.length >= limit ? extractNextPageToken(data.meta) : null;
+
+        await appendAuditLog({
+          tool: "list_task_types",
+          args: { query_provided: query !== undefined, enabled, limit, page_token },
+          outcome: "success",
+          result_count: taskTypes.length,
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              task_types: taskTypes.map((taskType) => ({
+                id: taskType.id,
+                name: taskType.name,
+                enabled: taskType.deleted_at == null,
+                created_at: taskType.created_at ?? null,
+                updated_at: taskType.updated_at ?? null,
+              })),
+              total_count: data.meta?.records ?? taskTypes.length,
+              has_more: nextPageToken !== null,
+              next_page_token: nextPageToken,
+            }, null, 2),
+          }],
+        };
+      } catch (err: any) {
+        await appendAuditLog({
+          tool: "list_task_types",
+          args: { query_provided: query !== undefined, enabled, limit, page_token },
+          outcome: "error",
+          error_message: err.message,
+        });
+        return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
     "get_task",
     {
-      description: "Get the complete details for a single Clio task, including its description, due_at value, estimate, notifications, and visibility",
+      description: "Get complete details for a single Clio task, including Task Type, time estimate in minutes, and time entries shown under Recorded Time",
       inputSchema: {
         task_id: z.number().int().positive().describe("The Clio task ID"),
       },
@@ -110,9 +187,20 @@ export function registerTaskTools(server: McpServer): void {
           completed_at: task.completed_at ?? null,
           notify_completion: task.notify_completion ?? null,
           statute_of_limitations: task.statute_of_limitations ?? null,
-          time_estimated: task.time_estimated ?? null,
+          time_estimated: estimateSecondsToMinutes(task.time_estimated),
           time_estimated_unit: "minutes",
           time_entries_count: task.time_entries_count ?? 0,
+          recorded_time: (task.time_entries ?? []).map((entry: any) => ({
+            id: entry.id,
+            date: entry.date,
+            quantity_in_hours: entry.quantity_in_hours ?? null,
+            quantity_redacted: entry.quantity_redacted ?? false,
+            rate: entry.price ?? null,
+            total: entry.total ?? null,
+            note: entry.note ?? null,
+            non_billable: entry.non_billable ?? false,
+            no_charge: entry.no_charge ?? false,
+          })),
           task_type: task.task_type
             ? { id: task.task_type.id, name: task.task_type.name }
             : null,
@@ -161,13 +249,14 @@ export function registerTaskTools(server: McpServer): void {
         due_at: dueAtSchema.optional(),
         due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Legacy date-only deadline (YYYY-MM-DD); prefer due_at when a time matters"),
         assignee_id: z.number().int().positive().optional().describe("Clio user ID to assign the task to"),
-        time_estimated: z.number().int().min(0).optional().describe("Estimated completion time in minutes; use 120 for 2 hours"),
+        task_type_id: z.number().int().positive().optional().describe("Task Type ID; use list_task_types to discover existing types"),
+        time_estimated: z.number().int().min(0).optional().describe("Estimated completion time in minutes (for example, 120 for 2 hours); converted to Clio API seconds internally"),
         notify_assignee: z.boolean().optional().describe("Notify the assignee that this task was assigned"),
         notify_completion: z.boolean().optional().describe("Notify the assigner when this task is completed"),
         permission: z.enum(["private", "public"]).optional().describe("Task visibility; private is limited to the creator, assignee, and administrators"),
       },
     },
-    async ({ matter_id, name, description, priority, due_at, due_date, assignee_id, time_estimated, notify_assignee, notify_completion, permission }) => {
+    async ({ matter_id, name, description, priority, due_at, due_date, assignee_id, task_type_id, time_estimated, notify_assignee, notify_completion, permission }) => {
       if (due_at !== undefined && due_date !== undefined) {
         return { content: [{ type: "text", text: "Error: provide only one of due_at or due_date, not both" }], isError: true };
       }
@@ -181,7 +270,8 @@ export function registerTaskTools(server: McpServer): void {
         if (due_at !== undefined) taskData["due_at"] = due_at;
         else if (due_date !== undefined) taskData["due_at"] = due_date;
         if (assignee_id) taskData["assignee"] = { id: assignee_id, type: "User" };
-        if (time_estimated !== undefined) taskData["time_estimated"] = time_estimated;
+        if (task_type_id !== undefined) taskData["task_type"] = { id: task_type_id };
+        if (time_estimated !== undefined) taskData["time_estimated"] = estimateMinutesToSeconds(time_estimated);
         if (notify_assignee !== undefined) taskData["notify_assignee"] = notify_assignee;
         if (notify_completion !== undefined) taskData["notify_completion"] = notify_completion;
         if (permission !== undefined) taskData["permission"] = permission;
@@ -191,7 +281,7 @@ export function registerTaskTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "create_task",
-          args: { matter_id, priority, due_at, due_date, assignee_id, time_estimated, notify_assignee, notify_completion, permission },
+          args: { matter_id, priority, due_at, due_date, assignee_id, task_type_id, time_estimated, notify_assignee, notify_completion, permission },
           outcome: "success",
           matter_id,
         });
@@ -206,7 +296,13 @@ export function registerTaskTools(server: McpServer): void {
                 name: task.name,
                 priority: task.priority,
                 due_at: task.due_at ?? taskData.due_at ?? null,
-                time_estimated: task.time_estimated ?? time_estimated ?? null,
+                task_type: task.task_type
+                  ? { id: task.task_type.id, name: task.task_type.name ?? null }
+                  : task_type_id !== undefined ? { id: task_type_id, name: null } : null,
+                time_estimated: task.time_estimated !== undefined
+                  ? estimateSecondsToMinutes(task.time_estimated)
+                  : time_estimated ?? null,
+                time_estimated_unit: "minutes",
                 notify_completion: task.notify_completion ?? notify_completion ?? null,
                 permission: task.permission ?? permission ?? "public",
                 matter_id,
@@ -217,7 +313,7 @@ export function registerTaskTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "create_task",
-          args: { matter_id, priority, due_at, due_date, assignee_id, time_estimated, notify_assignee, notify_completion, permission },
+          args: { matter_id, priority, due_at, due_date, assignee_id, task_type_id, time_estimated, notify_assignee, notify_completion, permission },
           outcome: "error",
           error_message: err.message,
           matter_id,
@@ -240,17 +336,18 @@ export function registerTaskTools(server: McpServer): void {
         due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Legacy date-only deadline (YYYY-MM-DD); prefer due_at when a time matters"),
         status: z.enum(["Pending", "Complete", "In Progress", "In Review", "Draft"]).optional().describe("New task status"),
         assignee_id: z.number().int().positive().optional().describe("Clio user ID to reassign the task to"),
-        time_estimated: z.number().int().min(0).optional().describe("Estimated completion time in minutes; use 120 for 2 hours"),
+        task_type_id: z.number().int().positive().optional().describe("New Task Type ID; use list_task_types to discover existing types"),
+        time_estimated: z.number().int().min(0).optional().describe("Estimated completion time in minutes (for example, 120 for 2 hours); converted to Clio API seconds internally"),
         notify_assignee: z.boolean().optional().describe("Notify the assignee about this task update"),
         notify_completion: z.boolean().optional().describe("Notify the assigner when this task is completed"),
         permission: z.enum(["private", "public"]).optional().describe("Task visibility"),
       },
     },
-    async ({ task_id, name, description, priority, due_at, due_date, status, assignee_id, time_estimated, notify_assignee, notify_completion, permission }) => {
+    async ({ task_id, name, description, priority, due_at, due_date, status, assignee_id, task_type_id, time_estimated, notify_assignee, notify_completion, permission }) => {
       if (due_at !== undefined && due_date !== undefined) {
         return { content: [{ type: "text", text: "Error: provide only one of due_at or due_date, not both" }], isError: true };
       }
-      if ([name, description, priority, due_at, due_date, status, assignee_id, time_estimated, notify_assignee, notify_completion, permission].every((v) => v === undefined)) {
+      if ([name, description, priority, due_at, due_date, status, assignee_id, task_type_id, time_estimated, notify_assignee, notify_completion, permission].every((v) => v === undefined)) {
         return { content: [{ type: "text", text: "Error: at least one field to update must be provided" }], isError: true };
       }
       try {
@@ -262,7 +359,8 @@ export function registerTaskTools(server: McpServer): void {
         else if (due_date !== undefined) taskData["due_at"] = due_date;
         if (status !== undefined) taskData["status"] = STATUS_MAP[status];
         if (assignee_id !== undefined) taskData["assignee"] = { id: assignee_id, type: "User" };
-        if (time_estimated !== undefined) taskData["time_estimated"] = time_estimated;
+        if (task_type_id !== undefined) taskData["task_type"] = { id: task_type_id };
+        if (time_estimated !== undefined) taskData["time_estimated"] = estimateMinutesToSeconds(time_estimated);
         if (notify_assignee !== undefined) taskData["notify_assignee"] = notify_assignee;
         if (notify_completion !== undefined) taskData["notify_completion"] = notify_completion;
         if (permission !== undefined) taskData["permission"] = permission;
@@ -272,7 +370,7 @@ export function registerTaskTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "update_task",
-          args: { task_id, name_changed: name !== undefined, description_changed: description !== undefined, priority, due_at, due_date, status, assignee_id, time_estimated, notify_assignee, notify_completion, permission },
+          args: { task_id, name_changed: name !== undefined, description_changed: description !== undefined, priority, due_at, due_date, status, assignee_id, task_type_id, time_estimated, notify_assignee, notify_completion, permission },
           outcome: "success",
           ...(task.matter?.id && { matter_id: task.matter.id }),
         });
@@ -288,7 +386,13 @@ export function registerTaskTools(server: McpServer): void {
                 priority: task.priority,
                 status: task.status,
                 due_at: task.due_at ?? taskData.due_at ?? null,
-                time_estimated: task.time_estimated ?? time_estimated ?? null,
+                task_type: task.task_type
+                  ? { id: task.task_type.id, name: task.task_type.name ?? null }
+                  : task_type_id !== undefined ? { id: task_type_id, name: null } : null,
+                time_estimated: task.time_estimated !== undefined
+                  ? estimateSecondsToMinutes(task.time_estimated)
+                  : time_estimated ?? null,
+                time_estimated_unit: "minutes",
                 notify_completion: task.notify_completion ?? notify_completion ?? null,
                 permission: task.permission ?? permission ?? null,
                 matter_id: task.matter?.id ?? null,
@@ -299,7 +403,7 @@ export function registerTaskTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "update_task",
-          args: { task_id, name_changed: name !== undefined, description_changed: description !== undefined, priority, due_at, due_date, status, assignee_id, time_estimated, notify_assignee, notify_completion, permission },
+          args: { task_id, name_changed: name !== undefined, description_changed: description !== undefined, priority, due_at, due_date, status, assignee_id, task_type_id, time_estimated, notify_assignee, notify_completion, permission },
           outcome: "error",
           error_message: err.message,
         });

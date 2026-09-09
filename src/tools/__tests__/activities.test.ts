@@ -47,6 +47,7 @@ const FAKE_ENTRY = {
   note: "Research",
   non_billable: false,
   matter: { id: 1, display_number: "2026-0001" },
+  task: { id: 55 },
   user: { id: 7, name: "Alice" },
 };
 
@@ -100,6 +101,19 @@ describe("list_time_entries", () => {
     expect(parsed.has_more).toBe(false);
     expect(parsed.next_page_token).toBeNull();
   });
+
+  it("filters by task_id and returns the task association", async () => {
+    mockClioGet.mockResolvedValue({ data: [FAKE_ENTRY], meta: { records: 1 } });
+    const { handlers } = buildServer();
+    const result = await handlers["list_time_entries"]({ task_id: 55, limit: 25 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockClioGet).toHaveBeenCalledWith(
+      "/activities.json",
+      expect.objectContaining({ task_id: "55" }),
+    );
+    expect(parsed.time_entries[0].task).toEqual({ id: 55 });
+  });
 });
 
 // ─── log_time_entry ───────────────────────────────────────────────────────────
@@ -140,6 +154,56 @@ describe("log_time_entry", () => {
     expect(payload.no_charge).toBe(false);
     expect(payload.activity_description).toEqual({ id: 42 });
     expect(payload.user).toEqual({ id: 7 });
+  });
+
+  it("associates the entry with a task and confirms it in the task's Recorded Time", async () => {
+    mockClioGet.mockResolvedValue({
+      data: {
+        id: 55,
+        time_entries_count: 1,
+        time_entries: [FAKE_ENTRY],
+      },
+    });
+    const { handlers } = buildServer();
+    const result = await handlers["log_time_entry"]({
+      matter_id: 1,
+      task_id: 55,
+      date: "2026-01-15",
+      quantity_in_hours: 1.5,
+    }) as any;
+    const [, body] = mockClioPost.mock.calls[0];
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect((body as any).data.task).toEqual({ id: 55 });
+    expect(mockClioGet).toHaveBeenCalledWith(
+      "/tasks/55.json",
+      expect.objectContaining({ fields: expect.stringContaining("time_entries") }),
+    );
+    expect(parsed.recorded_time_verification).toMatchObject({
+      task_id: 55,
+      verified: true,
+      time_entries_count: 1,
+      recorded_time_entry: { id: 99, quantity_in_hours: 1.5 },
+    });
+  });
+
+  it("reports an unverified read-back without inviting a duplicate retry", async () => {
+    mockClioGet.mockRejectedValue(new Error("read-back unavailable"));
+    const { handlers } = buildServer();
+    const result = await handlers["log_time_entry"]({
+      matter_id: 1,
+      task_id: 55,
+      date: "2026-01-15",
+      quantity_in_hours: 1,
+    }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(result.isError).toBeUndefined();
+    expect(parsed.success).toBe(true);
+    expect(parsed.recorded_time_verification).toMatchObject({
+      task_id: 55,
+      verified: false,
+    });
   });
 
   it("audit-logs full args on success", async () => {
@@ -224,6 +288,38 @@ describe("create_activity", () => {
     expect(mockClioPost).toHaveBeenCalledOnce();
     const [, body] = mockClioPost.mock.calls[0];
     expect((body as any).data).not.toHaveProperty("quantity");
+  });
+
+  it("rejects task_id for a non-TimeEntry", async () => {
+    const { handlers } = buildServer();
+    const result = await handlers["create_activity"]({
+      type: "ExpenseEntry",
+      date: "2026-01-15",
+      task_id: 55,
+      price: 50,
+    }) as any;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/task_id is only valid for TimeEntry/);
+    expect(mockClioPost).not.toHaveBeenCalled();
+  });
+
+  it("associates a TimeEntry with a task and verifies Recorded Time", async () => {
+    mockClioGet.mockResolvedValue({
+      data: { id: 55, time_entries_count: 1, time_entries: [FAKE_ENTRY] },
+    });
+    const { handlers } = buildServer();
+    const result = await handlers["create_activity"]({
+      type: "TimeEntry",
+      date: "2026-01-15",
+      matter_id: 1,
+      task_id: 55,
+      quantity_in_hours: 1.5,
+    }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+    const [, body] = mockClioPost.mock.calls[0];
+
+    expect((body as any).data.task).toEqual({ id: 55 });
+    expect(parsed.recorded_time_verification.verified).toBe(true);
   });
 
   it("audit-logs full args on success", async () => {

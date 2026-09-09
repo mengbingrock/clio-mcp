@@ -43,8 +43,19 @@ const TASK_FIXTURE = {
   permission: "private",
   notify_completion: true,
   statute_of_limitations: false,
-  time_estimated: 120,
+  time_estimated: 7200,
   time_entries_count: 1,
+  time_entries: [{
+    id: 44,
+    date: "2026-01-02",
+    quantity_in_hours: 1.5,
+    quantity_redacted: false,
+    price: 300,
+    total: 450,
+    note: "Drafting",
+    non_billable: false,
+    no_charge: false,
+  }],
   task_type: { id: 8, name: "Drafting" },
   assigner: { id: 5, name: "Assigning Lawyer" },
   assignee: { id: 6, type: "User", name: "Assigned Lawyer" },
@@ -125,6 +136,61 @@ describe("list_tasks", () => {
     expect(parsed.tasks[0].due_at).toBe("2026-01-15T17:00:00-08:00");
     expect(parsed.tasks[0].due_date).toBe("2026-01-15");
   });
+
+  it("filters by Task Type and converts Clio seconds to MCP minutes", async () => {
+    mockClioGet.mockResolvedValue({ data: [TASK_FIXTURE], meta: { records: 1 } });
+    const handler = handlers.get("list_tasks")!;
+    const result = await handler({ task_type_id: 8, limit: 25 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockClioGet).toHaveBeenCalledWith(
+      "/tasks.json",
+      expect.objectContaining({ task_type_id: "8" }),
+    );
+    expect(parsed.tasks[0]).toMatchObject({
+      task_type: { id: 8, name: "Drafting" },
+      time_estimated: 120,
+      time_estimated_unit: "minutes",
+    });
+  });
+});
+
+// ─── list_task_types ─────────────────────────────────────────────────────────
+
+describe("list_task_types", () => {
+  it("lists enabled Task Types with pagination", async () => {
+    mockClioGet.mockResolvedValue({
+      data: [{ id: 8, name: "Drafting", deleted_at: null, created_at: "2026-01-01T00:00:00Z" }],
+      meta: { records: 1, paging: {} },
+    });
+    const handler = handlers.get("list_task_types")!;
+    const result = await handler({ query: "Draft", enabled: true, limit: 25 }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockClioGet).toHaveBeenCalledWith("/task_types.json", expect.objectContaining({
+      fields: expect.stringContaining("name"),
+      query: "Draft",
+      enabled: "true",
+      order: "name(asc)",
+    }));
+    expect(parsed).toMatchObject({
+      task_types: [{ id: 8, name: "Drafting", enabled: true }],
+      total_count: 1,
+      has_more: false,
+      next_page_token: null,
+    });
+  });
+
+  it("does not write the search text to the audit log", async () => {
+    mockClioGet.mockResolvedValue({ data: [], meta: { records: 0 } });
+    const handler = handlers.get("list_task_types")!;
+    await handler({ query: "CONFIDENTIAL-CANARY", enabled: true, limit: 25 });
+    expect(mockAppendAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "list_task_types",
+      args: expect.objectContaining({ query_provided: true }),
+    }));
+    expect(JSON.stringify(mockAppendAuditLog.mock.calls)).not.toContain("CONFIDENTIAL-CANARY");
+  });
 });
 
 // ─── get_task ────────────────────────────────────────────────────────────────
@@ -147,6 +213,10 @@ describe("get_task", () => {
       assignee: { id: 6, type: "User", name: "Assigned Lawyer" },
       matter: { id: 99, display_number: "MAT-99" },
     });
+    expect(parsed.recorded_time).toEqual([expect.objectContaining({
+      id: 44,
+      quantity_in_hours: 1.5,
+    })]);
     expect(parsed.reminders).toHaveLength(1);
     expect(mockClioGet).toHaveBeenCalledWith(
       "/tasks/1.json",
@@ -173,7 +243,7 @@ describe("create_task", () => {
     expect(schema.safeParse("2026-02-31T17:00:00-08:00").success).toBe(false);
   });
 
-  it("passes an offset-aware due_at and task controls through unchanged", async () => {
+  it("passes Task Type and converts the minute estimate to Clio seconds", async () => {
     mockClioPost.mockResolvedValue({ data: TASK_FIXTURE });
     const handler = handlers.get("create_task")!;
     await handler({
@@ -183,6 +253,7 @@ describe("create_task", () => {
       priority: "High",
       due_at: "2026-09-05T17:00:00-07:00",
       assignee_id: 6,
+      task_type_id: 8,
       time_estimated: 120,
       notify_assignee: true,
       notify_completion: true,
@@ -192,7 +263,8 @@ describe("create_task", () => {
     expect(mockClioPost).toHaveBeenCalledWith("/tasks.json", {
       data: expect.objectContaining({
         due_at: "2026-09-05T17:00:00-07:00",
-        time_estimated: 120,
+        task_type: { id: 8 },
+        time_estimated: 7200,
         notify_assignee: true,
         notify_completion: true,
         permission: "private",
@@ -265,12 +337,13 @@ describe("update_task", () => {
     );
   });
 
-  it("passes offset-aware due_at, estimate, notifications, and permission unchanged", async () => {
+  it("passes Task Type and converts the minute estimate to Clio seconds", async () => {
     mockClioPatch.mockResolvedValue({ data: TASK_FIXTURE });
     const handler = handlers.get("update_task")!;
     await handler({
       task_id: 1,
       due_at: "2026-09-05T17:00:00-07:00",
+      task_type_id: 8,
       time_estimated: 120,
       notify_assignee: false,
       notify_completion: true,
@@ -281,7 +354,8 @@ describe("update_task", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           due_at: "2026-09-05T17:00:00-07:00",
-          time_estimated: 120,
+          task_type: { id: 8 },
+          time_estimated: 7200,
           notify_assignee: false,
           notify_completion: true,
           permission: "public",

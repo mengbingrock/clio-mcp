@@ -3,7 +3,48 @@ import z from "zod";
 import { clioGet, clioPost, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 
-const ACTIVITY_FIELDS = "id,date,quantity_in_hours,price,total,note,matter{id,display_number},user{id,name}";
+const ACTIVITY_FIELDS = "id,type,date,quantity_in_hours,quantity_redacted,price,total,note,non_billable,no_charge,matter{id,display_number},task{id},user{id,name}";
+const TASK_RECORDED_TIME_FIELDS =
+  "id,time_entries_count,time_entries{id,date,quantity_in_hours,quantity_redacted,price,total,note,non_billable,no_charge}";
+
+function shapeTimeEntry(entry: any) {
+  return {
+    id: entry.id,
+    date: entry.date ?? null,
+    quantity_in_hours: entry.quantity_in_hours ?? null,
+    quantity_redacted: entry.quantity_redacted ?? false,
+    rate: entry.price ?? null,
+    total: entry.total ?? null,
+    note: entry.note ?? null,
+    non_billable: entry.non_billable ?? false,
+    no_charge: entry.no_charge ?? false,
+  };
+}
+
+async function verifyTaskRecordedTime(taskId: number, activityId: number) {
+  try {
+    const data = await clioGet(`/tasks/${taskId}.json`, { fields: TASK_RECORDED_TIME_FIELDS });
+    const task = data.data;
+    const recordedEntry = (task.time_entries ?? []).find((entry: any) => entry.id === activityId);
+    return {
+      task_id: taskId,
+      verified: recordedEntry !== undefined,
+      time_entries_count: task.time_entries_count ?? null,
+      recorded_time_entry: recordedEntry ? shapeTimeEntry(recordedEntry) : null,
+      ...(recordedEntry === undefined && {
+        warning: "The time entry was created, but the immediate task read-back did not include it in Recorded Time.",
+      }),
+    };
+  } catch (err: any) {
+    return {
+      task_id: taskId,
+      verified: false,
+      time_entries_count: null,
+      recorded_time_entry: null,
+      warning: `The time entry was created, but Recorded Time verification failed: ${err.message}`,
+    };
+  }
+}
 
 export function registerActivityTools(server: McpServer): void {
   server.registerTool(
@@ -12,13 +53,14 @@ export function registerActivityTools(server: McpServer): void {
       description: "List time entries (billable hours) from Clio",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter by matter ID"),
+        task_id: z.number().int().positive().optional().describe("Filter by the associated task ID"),
         start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — entries on or after this date"),
         end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — entries on or before this date"),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
         page_token: z.string().optional().describe("Cursor from a previous list_time_entries response to fetch the next page"),
       },
     },
-    async ({ matter_id, start_date, end_date, limit, page_token }) => {
+    async ({ matter_id, task_id, start_date, end_date, limit, page_token }) => {
       try {
         const params: Record<string, string> = {
           fields: ACTIVITY_FIELDS,
@@ -26,6 +68,7 @@ export function registerActivityTools(server: McpServer): void {
           type: "TimeEntry",
         };
         if (matter_id) params["matter_id"] = String(matter_id);
+        if (task_id) params["task_id"] = String(task_id);
         if (start_date) params["start_date"] = start_date;
         if (end_date) params["end_date"] = end_date;
         if (page_token) params["page_token"] = page_token;
@@ -36,7 +79,7 @@ export function registerActivityTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "list_time_entries",
-          args: { matter_id, start_date, end_date, limit, page_token },
+          args: { matter_id, task_id, start_date, end_date, limit, page_token },
           outcome: "success",
           result_count: entries?.length ?? 0,
           ...(matter_id && { matter_id }),
@@ -51,6 +94,7 @@ export function registerActivityTools(server: McpServer): void {
             total: e.total,
             description: e.note ?? null,
             matter: e.matter ? { id: e.matter.id, display_number: e.matter.display_number } : null,
+            task: e.task ? { id: e.task.id } : null,
             user: e.user ? { id: e.user.id, name: e.user.name } : null,
           })),
           total_count: data.meta?.records ?? entries.length,
@@ -62,7 +106,7 @@ export function registerActivityTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "list_time_entries",
-          args: { matter_id, start_date, end_date, limit, page_token },
+          args: { matter_id, task_id, start_date, end_date, limit, page_token },
           outcome: "error",
           error_message: err.message,
           ...(matter_id && { matter_id }),
@@ -75,9 +119,10 @@ export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "log_time_entry",
     {
-      description: "Create a new billable (or non-billable) time entry on a Clio matter. Use for time entries only; for expenses, hard costs, or soft costs use create_activity.",
+      description: "Create a new billable (or non-billable) time entry on a Clio matter, optionally associate it with a task, and verify the task's Recorded Time by reading it back. Use for time entries only; for expenses, hard costs, or soft costs use create_activity.",
       inputSchema: {
         matter_id: z.number().int().positive().describe("Matter ID to log time against"),
+        task_id: z.number().int().positive().optional().describe("Task ID to associate the time entry with; the tool reads the task back and verifies Recorded Time"),
         date: z.string().date().describe("ISO date (YYYY-MM-DD) when work was performed"),
         quantity_in_hours: z.number().positive().describe("Hours worked (e.g. 1.5 for 90 minutes)"),
         note: z.string().optional().describe("Description of work performed"),
@@ -88,7 +133,7 @@ export function registerActivityTools(server: McpServer): void {
         user_id: z.number().int().positive().optional().describe("User to log time for; defaults to authenticated user"),
       },
     },
-    async ({ matter_id, date, quantity_in_hours, note, price, non_billable, no_charge, activity_description_id, user_id }) => {
+    async ({ matter_id, task_id, date, quantity_in_hours, note, price, non_billable, no_charge, activity_description_id, user_id }) => {
       try {
         const activityData: Record<string, unknown> = {
           type: "TimeEntry",
@@ -96,6 +141,7 @@ export function registerActivityTools(server: McpServer): void {
           quantity: quantity_in_hours * 3600,
           matter: { id: matter_id },
         };
+        if (task_id !== undefined)                 activityData["task"] = { id: task_id };
         if (note !== undefined)                  activityData["note"] = note;
         if (price !== undefined)                 activityData["price"] = price;
         if (non_billable !== undefined)           activityData["non_billable"] = non_billable;
@@ -103,12 +149,15 @@ export function registerActivityTools(server: McpServer): void {
         if (activity_description_id !== undefined) activityData["activity_description"] = { id: activity_description_id };
         if (user_id !== undefined)               activityData["user"] = { id: user_id };
 
-        const data = await clioPost("/activities.json", { data: activityData });
+        const data = await clioPost(`/activities.json?fields=${encodeURIComponent(ACTIVITY_FIELDS)}`, { data: activityData });
         const entry = data.data;
+        const recordedTimeVerification = task_id !== undefined
+          ? await verifyTaskRecordedTime(task_id, entry.id)
+          : null;
 
         await appendAuditLog({
           tool: "log_time_entry",
-          args: { matter_id, date, quantity_in_hours, note, price, non_billable, no_charge, activity_description_id, user_id },
+          args: { matter_id, task_id, date, quantity_in_hours, note, price, non_billable, no_charge, activity_description_id, user_id },
           outcome: "success",
           matter_id,
         });
@@ -127,15 +176,17 @@ export function registerActivityTools(server: McpServer): void {
                 note: entry.note ?? null,
                 non_billable: entry.non_billable ?? false,
                 matter: entry.matter ? { id: entry.matter.id, display_number: entry.matter.display_number } : null,
+                task: entry.task ? { id: entry.task.id } : null,
                 user: entry.user ? { id: entry.user.id, name: entry.user.name } : null,
               },
+              recorded_time_verification: recordedTimeVerification,
             }, null, 2),
           }],
         };
       } catch (err: any) {
         await appendAuditLog({
           tool: "log_time_entry",
-          args: { matter_id, date, quantity_in_hours, note, price, non_billable, no_charge, activity_description_id, user_id },
+          args: { matter_id, task_id, date, quantity_in_hours, note, price, non_billable, no_charge, activity_description_id, user_id },
           outcome: "error",
           error_message: err.message,
           matter_id,
@@ -153,6 +204,7 @@ export function registerActivityTools(server: McpServer): void {
         type: z.enum(["TimeEntry", "ExpenseEntry", "HardCostEntry", "SoftCostEntry"]).describe("Activity type"),
         date: z.string().date().describe("ISO date (YYYY-MM-DD) when the activity occurred"),
         matter_id: z.number().int().positive().optional().describe("Matter ID to associate with"),
+        task_id: z.number().int().positive().optional().describe("Task ID to associate with a TimeEntry; Recorded Time is read back and verified"),
         note: z.string().optional().describe("Description / details"),
         quantity_in_hours: z.number().positive().optional().describe("Hours (TimeEntry only); converted to seconds internally"),
         price: z.number().optional().describe("Hourly rate (TimeEntry) or expense amount (Expense types)"),
@@ -164,21 +216,32 @@ export function registerActivityTools(server: McpServer): void {
         tax_setting: z.enum(["no_tax", "tax_1_only", "tax_2_only", "tax_1_and_tax_2"]).optional().describe("Tax setting (expense entries)"),
       },
     },
-    async ({ type, date, matter_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id, reference, tax_setting }) => {
+    async ({ type, date, matter_id, task_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id, reference, tax_setting }) => {
       if (type === "TimeEntry" && quantity_in_hours === undefined) {
         await appendAuditLog({
           tool: "create_activity",
-          args: { type, date, matter_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id },
+          args: { type, date, matter_id, task_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id },
           outcome: "error",
           error_message: "quantity_in_hours is required for TimeEntry",
           ...(matter_id !== undefined && { matter_id }),
         });
         return { content: [{ type: "text", text: "Error: quantity_in_hours is required for TimeEntry" }], isError: true };
       }
+      if (task_id !== undefined && type !== "TimeEntry") {
+        await appendAuditLog({
+          tool: "create_activity",
+          args: { type, date, matter_id, task_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id },
+          outcome: "error",
+          error_message: "task_id is only valid for TimeEntry",
+          ...(matter_id !== undefined && { matter_id }),
+        });
+        return { content: [{ type: "text", text: "Error: task_id is only valid for TimeEntry" }], isError: true };
+      }
 
       try {
         const activityData: Record<string, unknown> = { type, date };
         if (matter_id !== undefined)               activityData["matter"] = { id: matter_id };
+        if (task_id !== undefined)                 activityData["task"] = { id: task_id };
         if (note !== undefined)                    activityData["note"] = note;
         if (quantity_in_hours !== undefined)       activityData["quantity"] = quantity_in_hours * 3600;
         if (price !== undefined)                   activityData["price"] = price;
@@ -189,12 +252,15 @@ export function registerActivityTools(server: McpServer): void {
         if (reference !== undefined)               activityData["reference"] = reference;
         if (tax_setting !== undefined)             activityData["tax_setting"] = tax_setting;
 
-        const data = await clioPost("/activities.json", { data: activityData });
+        const data = await clioPost(`/activities.json?fields=${encodeURIComponent(ACTIVITY_FIELDS)}`, { data: activityData });
         const entry = data.data;
+        const recordedTimeVerification = task_id !== undefined
+          ? await verifyTaskRecordedTime(task_id, entry.id)
+          : null;
 
         await appendAuditLog({
           tool: "create_activity",
-          args: { type, date, matter_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id },
+          args: { type, date, matter_id, task_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id },
           outcome: "success",
           ...(matter_id !== undefined && { matter_id }),
         });
@@ -214,15 +280,17 @@ export function registerActivityTools(server: McpServer): void {
                 note: entry.note ?? null,
                 non_billable: entry.non_billable ?? false,
                 matter: entry.matter ? { id: entry.matter.id, display_number: entry.matter.display_number } : null,
+                task: entry.task ? { id: entry.task.id } : null,
                 user: entry.user ? { id: entry.user.id, name: entry.user.name } : null,
               },
+              recorded_time_verification: recordedTimeVerification,
             }, null, 2),
           }],
         };
       } catch (err: any) {
         await appendAuditLog({
           tool: "create_activity",
-          args: { type, date, matter_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id },
+          args: { type, date, matter_id, task_id, note, quantity_in_hours, price, non_billable, no_charge, activity_description_id, user_id },
           outcome: "error",
           error_message: err.message,
           ...(matter_id !== undefined && { matter_id }),

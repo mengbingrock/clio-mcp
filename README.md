@@ -392,14 +392,15 @@ Claude selects and calls these tools automatically based on your questions. You 
 | `folder_exists` | `matter_id` or `parent_folder_id`, `name` | Checks whether a folder with the given exact name already exists; fully paginates and never relies on parent-type filtering, so it won't miss folders whose matter's document root is itself a Folder node |
 | `create_folder` | `name`, `matter_id` or `parent_folder_id`, `if_not_exists` | Creates a folder at a matter's document root or under an existing folder; call `folder_exists` first to avoid duplicates |
 
-### Tasks (5 tools)
+### Tasks (6 tools)
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_tasks` | `matter_id`, `status` (Pending/Complete/In Progress/In Review/Draft), `due_date_start`, `due_date_end`, `limit`, `page_token` | Lists tasks with optional filters and preserves the complete `due_at` value |
-| `get_task` | `task_id` | Returns complete task detail, including description, `due_at`, time estimate, notification setting, visibility, associations, and reminders |
-| `create_task` | `matter_id`, `name`, `description`, `priority` (High/Normal/Low), `due_at`, `due_date` (legacy), `assignee_id`, `time_estimated`, `notify_assignee`, `notify_completion`, `permission` (private/public) | Creates a task; `due_at` requires an explicit time-zone offset, and `time_estimated` is in minutes |
-| `update_task` | `task_id`, `name`, `description`, `priority`, `due_at`, `due_date` (legacy), `status`, `assignee_id`, `time_estimated`, `notify_assignee`, `notify_completion`, `permission` (private/public) | Updates one or more fields; `due_at` requires an explicit time-zone offset |
+| `list_tasks` | `matter_id`, `task_type_id`, `status` (Pending/Complete/In Progress/In Review/Draft), `due_date_start`, `due_date_end`, `limit`, `page_token` | Lists tasks with optional filters, Task Type, a complete `due_at` value, and time estimates converted from Clio seconds to minutes |
+| `list_task_types` | `query`, `enabled`, `limit`, `page_token` | Lists existing Task Types and their IDs for task creation, updates, and filtering; Task Types require Clio Advanced Tasks |
+| `get_task` | `task_id` | Returns complete task detail, including Task Type, time estimate in minutes, and the time entries shown under Recorded Time |
+| `create_task` | `matter_id`, `name`, `description`, `priority` (High/Normal/Low), `due_at`, `due_date` (legacy), `assignee_id`, `task_type_id`, `time_estimated`, `notify_assignee`, `notify_completion`, `permission` (private/public) | Creates a task; `due_at` requires an explicit time-zone offset; `time_estimated` is accepted in minutes and converted to Clio API seconds |
+| `update_task` | `task_id`, `name`, `description`, `priority`, `due_at`, `due_date` (legacy), `status`, `assignee_id`, `task_type_id`, `time_estimated`, `notify_assignee`, `notify_completion`, `permission` (private/public) | Updates one or more fields, including Task Type and a minute-based time estimate; `due_at` requires an explicit time-zone offset |
 | `complete_task` | `task_id` | Marks a task as complete |
 
 ### Calendar (6 tools)
@@ -417,9 +418,9 @@ Claude selects and calls these tools automatically based on your questions. You 
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_time_entries` | `matter_id`, `start_date`, `end_date`, `limit`, `page_token` | Lists billable time entries with optional filters; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
-| `log_time_entry` | `matter_id`, `date`, `quantity_in_hours`, `note`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id` | Creates a new billable (or non-billable) time entry on a matter |
-| `create_activity` | `type`, `date`, `matter_id`, `note`, `quantity_in_hours`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id`, `reference`, `tax_setting` | Creates any Clio activity type: TimeEntry, ExpenseEntry, HardCostEntry, or SoftCostEntry |
+| `list_time_entries` | `matter_id`, `task_id`, `start_date`, `end_date`, `limit`, `page_token` | Lists billable time entries with optional matter/task filters and returns each task association |
+| `log_time_entry` | `matter_id`, `task_id`, `date`, `quantity_in_hours`, `note`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id` | Creates a time entry on a matter, optionally links it to a task, then reads the task back to verify it appears in Recorded Time |
+| `create_activity` | `type`, `date`, `matter_id`, `task_id`, `note`, `quantity_in_hours`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id`, `reference`, `tax_setting` | Creates any Clio activity type; `task_id` is supported for TimeEntry and triggers the same Recorded Time verification |
 
 ### Billing (1 tool)
 
