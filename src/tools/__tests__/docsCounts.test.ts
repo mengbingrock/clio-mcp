@@ -47,7 +47,7 @@ describe("README tool counts", () => {
     expect(written, "README no longer describes the read-only write-tool count").not.toBeNull();
     const words: Record<string, number> = {
       seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
-      fifteen: 15,
+      fifteen: 15, nineteen: 19,
     };
     expect(words[written![1]], `README says "${written![1]}" write tools`).toBe(WRITE_TOOLS.size);
   });

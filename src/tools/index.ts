@@ -18,6 +18,7 @@ import { registerResources } from "../resources/index.js";
 import { registerMatterTools } from "./matters.js";
 import { registerContactTools } from "./contacts.js";
 import { registerDocumentTools } from "./documents.js";
+import { registerDocumentTemplateTools } from "./documentTemplates.js";
 import { registerFolderTools } from "./folders.js";
 import { registerCustomFieldTools } from "./customFields.js";
 import { registerMatterStageTools } from "./matterStages.js";
@@ -47,6 +48,10 @@ export const WRITE_TOOLS: ReadonlySet<string> = new Set([
   "create_matter",
   "create_custom_field",
   "upload_document",
+  "create_document_template",
+  "update_document_template",
+  "delete_document_template",
+  "create_document_automation",
   "update_document",
   "create_task",
   "update_task",
@@ -94,6 +99,14 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   upload_document: { title: "Upload document", readOnly: false },
   update_document: { title: "Update document", readOnly: false, idempotent: true },
   // folders
+  list_document_templates: { title: "List document templates", readOnly: true },
+  get_document_template: { title: "Get document template", readOnly: true },
+  create_document_template: { title: "Create document template", readOnly: false },
+  update_document_template: { title: "Update document template", readOnly: false, idempotent: true },
+  delete_document_template: { title: "Delete document template", readOnly: false, destructive: true, idempotent: true },
+  create_document_automation: { title: "Generate document from template", readOnly: false },
+  get_document_automation: { title: "Get document generation job", readOnly: true },
+  list_document_automations: { title: "List document generation jobs", readOnly: true },
   list_folders: { title: "List folders", readOnly: true },
   folder_exists: { title: "Check whether a folder exists", readOnly: true },
   create_folder: { title: "Create folder", readOnly: false, idempotent: true },
@@ -132,6 +145,7 @@ export const REGISTRARS: ReadonlyArray<(server: McpServer) => void> = [
   registerMatterTools,
   registerContactTools,
   registerDocumentTools,
+  registerDocumentTemplateTools,
   registerFolderTools,
   registerCustomFieldTools,
   registerMatterStageTools,

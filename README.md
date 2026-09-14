@@ -5,7 +5,7 @@
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, custom fields, notes, contacts, documents, folders, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 42 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
+> **TL;DR:** 50 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -66,7 +66,7 @@ ABA Opinion 512 (2023) requires attorneys using AI tools to understand how those
 
 - **No data retention by the connector.** The connector does not store matter data, client names, or any Clio content. It fetches from the API and passes results to Claude. The only thing persisted locally is your authentication token, and that is encrypted (see below).
 
-- **Fifteen write tools, all logged, all optional.** The connector can create matters, custom fields, notes, tasks, folders, calendar entries, time entries and activities; update matters, tasks, documents and calendar entries; complete tasks; upload documents; and delete calendar entries. It never touches contacts or billing records. Every write is recorded in the audit log, and `READ_ONLY=true` removes all fifteen write tools from the server entirely (see [Read-only mode](#read-only-mode)), so a firm can start with read access and turn writes on when it has decided to.
+- **Nineteen write tools, all logged, all optional.** The connector can create matters, custom fields, notes, tasks, folders, calendar entries, time entries and activities; update matters, tasks, documents and calendar entries; complete tasks; upload documents; and delete calendar entries. It never touches contacts or billing records. Every write is recorded in the audit log, and `READ_ONLY=true` removes all nineteen write tools from the server entirely (see [Read-only mode](#read-only-mode)), so a firm can start with read access and turn writes on when it has decided to.
 
 ### Token security: encryption at rest
 
@@ -92,7 +92,7 @@ If you installed this connector via the Clio App Directory's one-click install i
 
 Full data-flow documentation for security reviewers, including a sequence diagram and what the broker persists versus never persists, is in the token broker's repository: [`docs/DATA_FLOW.md`](https://github.com/oktopeak/clio-mcp-backend/blob/main/docs/DATA_FLOW.md).
 
-Everything else — local AES-256-GCM token encryption, the audit log, and the 42 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 42 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
+Everything else — local AES-256-GCM token encryption, the audit log, and the 50 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 50 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
 
 ---
 
@@ -438,6 +438,10 @@ Claude selects and calls these tools automatically based on your questions. You 
 | `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root or a verified folder using Clio's multipart S3 upload flow, then reads back the actual parent |
 | `update_document` | `document_id`, `name`, `matter_id`, `folder_id` | Renames and/or moves a document; a target folder is verified against the target matter before the move, and the actual parent is read back afterward |
 
+### Document templates and generation (8 tools)
+
+Clio Manage template management and document generation are available through `list_document_templates`, `get_document_template`, `create_document_template`, `update_document_template`, `delete_document_template`, `list_document_automations`, `create_document_automation`, and `get_document_automation`. See [document template workflow and API mapping](docs/document-templates.md) for parameters, permissions, and verification limitations.
+
 ### Folders (3 tools)
 
 | Tool | Inputs | What it does |
@@ -541,11 +545,11 @@ All settings are passed as environment variables (in your Claude Desktop config 
 | `CLIO_API_BASE` | No | `<region host>/api/v4` | Advanced override for the API base URL. Takes precedence over `CLIO_REGION` |
 | `CLIO_AUTH_URL` | No | `<region host>/oauth/authorize` | Advanced override for the OAuth authorization endpoint |
 | `CLIO_TOKEN_URL` | No | `<region host>/oauth/token` | Advanced override for the OAuth token endpoint |
-| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the fifteen write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
+| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the nineteen write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
 
 ### Read-only mode
 
-Set `READ_ONLY=true` and the connector never registers its fifteen write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `update_document`, `create_folder`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+Set `READ_ONLY=true` and the connector never registers its nineteen write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
 
 For Claude Desktop, add it next to the other variables:
 
@@ -699,7 +703,7 @@ We're a 7-person in-house product team building AI solutions for regulated indus
 
 ## Using the connector as a library
 
-Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 42 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
+Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 50 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
