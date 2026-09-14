@@ -435,7 +435,7 @@ Claude selects and calls these tools automatically based on your questions. You 
 |---|---|---|
 | `list_documents` | `matter_id`, `parent_id`, `query`, `limit`, `page_token` | Lists or full-text searches documents; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `get_document` | `document_id` | Returns document metadata, its actual parent folder, and a direct download URL |
-| `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root or a verified folder using Clio's multipart S3 upload flow, then reads back the actual parent |
+| `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root (`matter_id`) or directly to a matter/firm-level folder (`folder_id`), including the user's Private documents folder, using Clio's multipart S3 upload flow; reads back the actual parent, and requires at least one target ID |
 | `update_document` | `document_id`, `name`, `matter_id`, `folder_id` | Renames and/or moves a document; a target folder is verified against the target matter before the move, and the actual parent is read back afterward |
 
 ### Document templates and generation (8 tools)

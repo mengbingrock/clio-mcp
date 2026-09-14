@@ -35,13 +35,32 @@ function mapDocumentParent(document: any): {
   };
 }
 
-async function resolveDocumentParent(matterId: number, folderId?: number): Promise<DocumentParentRef> {
-  if (!folderId) return { id: matterId, type: "Matter" };
+async function resolveDocumentParent(matterId?: number, folderId?: number): Promise<DocumentParentRef> {
+  if (matterId === undefined && folderId === undefined) {
+    throw new Error("Provide matter_id for a matter-root upload or folder_id for a folder upload.");
+  }
+  if (folderId === undefined) return { id: matterId!, type: "Matter" };
 
   const response = await clioGet(`/folders/${folderId}.json`, { fields: FOLDER_VERIFY_FIELDS });
   const folder = response?.data;
+  const returnedFolderId = Number(folder?.id);
+  if (!folder || !Number.isSafeInteger(returnedFolderId) || returnedFolderId !== folderId) {
+    throw new Error(`Cannot verify folder ${folderId}.`);
+  }
+
+  // A folder ID uniquely identifies the upload target. When matter_id is also
+  // supplied, keep the stronger ownership check used by matter workflows. When
+  // it is omitted, the folder may be firm-level (matter: null) or matter-owned.
+  if (matterId === undefined) return { id: folderId, type: "Folder" };
+
   const folderMatterId = Number(folder?.matter?.id);
-  if (!folder || !Number.isSafeInteger(folderMatterId)) {
+  if (!Number.isSafeInteger(folderMatterId)) {
+    if (Object.prototype.hasOwnProperty.call(folder, "matter") && folder.matter === null) {
+      throw new Error(
+        `Folder ${folderId} is firm-level and does not belong to matter ${matterId}. ` +
+        "Omit matter_id to upload to this folder."
+      );
+    }
     throw new Error(`Cannot verify that folder ${folderId} belongs to matter ${matterId}.`);
   }
   if (folderMatterId !== matterId) {
@@ -229,11 +248,11 @@ export function registerDocumentTools(server: McpServer): void {
     "upload_document",
     {
       description:
-        "Upload a local file to a Clio matter root or a verified folder in that matter, then read back the actual parent",
+        "Upload a local file to a Clio matter root, matter folder, or firm-level folder (including Private documents), then read back the actual parent",
       inputSchema: {
         file_path: z.string().describe("Absolute path to the local file to upload"),
-        matter_id: z.number().int().positive().describe("Clio matter ID to attach the document to"),
-        folder_id: z.number().int().positive().optional().describe("Optional target folder ID; the folder must belong to matter_id"),
+        matter_id: z.number().int().positive().optional().describe("Target matter ID; required for a matter-root upload, optional when folder_id is supplied"),
+        folder_id: z.number().int().positive().optional().describe("Target folder ID; may identify a matter folder, firm-level folder, or the user's Private documents folder"),
         name: z.string().optional().describe("Document name in Clio; defaults to the file's basename"),
         content_type: z.string().optional().describe("MIME type; auto-detected from extension if omitted"),
       },
@@ -320,7 +339,7 @@ export function registerDocumentTools(server: McpServer): void {
           tool: "upload_document",
           args: { file_path, matter_id, folder_id, name: docName },
           outcome: "success",
-          matter_id,
+          ...(matter_id !== undefined && { matter_id }),
         });
 
         return {
@@ -346,7 +365,7 @@ export function registerDocumentTools(server: McpServer): void {
           args: { file_path, matter_id, folder_id },
           outcome: "error",
           error_message: err.message,
-          matter_id,
+          ...(matter_id !== undefined && { matter_id }),
         });
         return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
       }

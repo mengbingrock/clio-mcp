@@ -69,6 +69,13 @@ const FOLDER = {
   matter: { id: 42, display_number: "00042-001" },
 };
 
+const FIRM_FOLDER = {
+  id: 200,
+  name: "[Test]TemplateFolder",
+  parent: { id: 199, type: "Folder" },
+  matter: null,
+};
+
 const DOCUMENT = {
   id: 500,
   name: "evidence.pdf",
@@ -78,6 +85,25 @@ const DOCUMENT = {
   parent: { id: 100, type: "Folder", name: "Test Subfolder" },
   matter: { id: 42, display_number: "00042-001" },
   latest_document_version: { uuid: "version-uuid", created_at: "2026-09-05T12:00:00Z", size: 0 },
+};
+
+const FIRM_DOCUMENT = {
+  ...DOCUMENT,
+  parent: { id: 200, type: "Folder", name: "[Test]TemplateFolder" },
+  matter: null,
+};
+
+const PRIVATE_FOLDER = {
+  id: 300,
+  name: "Private documents",
+  parent: { id: 299, type: "Folder" },
+  matter: null,
+};
+
+const PRIVATE_DOCUMENT = {
+  ...DOCUMENT,
+  parent: { id: 300, type: "Folder", name: "Private documents" },
+  matter: null,
 };
 
 beforeEach(() => {
@@ -168,6 +194,86 @@ describe("upload_document", () => {
 
     expect(mockClioPost.mock.calls[0][1].data.parent).toEqual({ id: 42, type: "Matter" });
     expect(parsed.parent_verified).toBe(true);
+  });
+
+  it("uploads directly to a firm-level folder without requiring matter_id", async () => {
+    mockClioGet
+      .mockResolvedValueOnce({ data: FIRM_FOLDER })
+      .mockResolvedValueOnce({ data: FIRM_DOCUMENT });
+
+    const result = await handlers["upload_document"]({
+      file_path: "/tmp/template.pdf",
+      folder_id: 200,
+    }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockClioGet.mock.calls[0]).toEqual([
+      "/folders/200.json",
+      expect.objectContaining({ fields: expect.stringContaining("matter{id,display_number}") }),
+    ]);
+    expect(mockClioPost.mock.calls[0][1].data.parent).toEqual({ id: 200, type: "Folder" });
+    expect(parsed.matter).toBeNull();
+    expect(parsed.requested_parent).toEqual({ id: 200, type: "Folder" });
+    expect(parsed.parent_folder).toEqual({ id: 200, name: "[Test]TemplateFolder" });
+    expect(parsed.parent_verified).toBe(true);
+  });
+
+  it("accepts a matter-owned folder by folder_id alone", async () => {
+    mockClioGet
+      .mockResolvedValueOnce({ data: FOLDER })
+      .mockResolvedValueOnce({ data: DOCUMENT });
+
+    const result = await handlers["upload_document"]({
+      file_path: "/tmp/evidence.pdf",
+      folder_id: 100,
+    }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockClioPost.mock.calls[0][1].data.parent).toEqual({ id: 100, type: "Folder" });
+    expect(parsed.matter).toEqual({ id: 42, display_number: "00042-001" });
+    expect(parsed.parent_verified).toBe(true);
+  });
+
+  it("uploads to the user's Private documents folder by folder_id", async () => {
+    mockClioGet
+      .mockResolvedValueOnce({ data: PRIVATE_FOLDER })
+      .mockResolvedValueOnce({ data: PRIVATE_DOCUMENT });
+
+    const result = await handlers["upload_document"]({
+      file_path: "/tmp/private.pdf",
+      folder_id: 300,
+    }) as any;
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(mockClioPost.mock.calls[0][1].data.parent).toEqual({ id: 300, type: "Folder" });
+    expect(parsed.matter).toBeNull();
+    expect(parsed.parent_folder).toEqual({ id: 300, name: "Private documents" });
+    expect(parsed.parent_verified).toBe(true);
+  });
+
+  it("rejects a firm-level folder when a matter_id is also supplied", async () => {
+    mockClioGet.mockResolvedValue({ data: FIRM_FOLDER });
+
+    const result = await handlers["upload_document"]({
+      file_path: "/tmp/template.pdf",
+      matter_id: 42,
+      folder_id: 200,
+    }) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("is firm-level and does not belong to matter 42");
+    expect(result.content[0].text).toContain("Omit matter_id");
+    expect(mockClioPost).not.toHaveBeenCalled();
+  });
+
+  it("requires either matter_id or folder_id", async () => {
+    const result = await handlers["upload_document"]({
+      file_path: "/tmp/evidence.pdf",
+    }) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Provide matter_id");
+    expect(mockClioPost).not.toHaveBeenCalled();
   });
 });
 

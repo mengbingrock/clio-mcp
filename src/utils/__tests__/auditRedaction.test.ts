@@ -98,7 +98,7 @@ describe("redactAuditArgs", () => {
     ["create_task", { matter_id: 1, name: "File motion", description: "By Friday", priority: "High" }, ["name", "description"]],
     ["create_calendar_entry", { summary: "Deposition of J. Doe", start_at: "2026-01-01", end_at: "2026-01-01", calendar_owner_id: 5, description: "Room 4", location: "Court" }, ["summary", "description", "location"]],
     ["create_matter", { client_id: 9, description: "Doe v. Roe", client_reference: "DR-1", status: "open" }, ["description", "client_reference"]],
-    ["upload_document", { file_path: "/Users/x/secret.pdf", matter_id: 1, name: "secret.pdf", content_type: "application/pdf" }, ["file_path", "name"]],
+    ["upload_document", { file_path: "/Users/x/secret.pdf", matter_id: 1, folder_id: 2, name: "secret.pdf", content_type: "application/pdf" }, ["file_path", "name"]],
     ["list_users", { name: "Smith", limit: 10 }, ["name"]],
     ["list_documents", { matter_id: 1, query: "settlement agreement" }, ["query"]],
   ] as const)("%s never logs %j", (tool, args, redactedKeys) => {
