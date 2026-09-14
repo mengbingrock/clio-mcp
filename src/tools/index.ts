@@ -98,7 +98,7 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   get_document: { title: "Get document", readOnly: true },
   upload_document: { title: "Upload document", readOnly: false },
   update_document: { title: "Update document", readOnly: false, idempotent: true },
-  // folders
+  // document templates and generation
   list_document_templates: { title: "List document templates", readOnly: true },
   get_document_template: { title: "Get document template", readOnly: true },
   create_document_template: { title: "Create document template", readOnly: false },
@@ -107,6 +107,7 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   create_document_automation: { title: "Generate document from template", readOnly: false },
   get_document_automation: { title: "Get document generation job", readOnly: true },
   list_document_automations: { title: "List document generation jobs", readOnly: true },
+  // folders
   list_folders: { title: "List folders", readOnly: true },
   folder_exists: { title: "Check whether a folder exists", readOnly: true },
   create_folder: { title: "Create folder", readOnly: false, idempotent: true },

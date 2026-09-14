@@ -63,7 +63,7 @@ describe("document automations", () => {
     expect(mocks.post).toHaveBeenCalledWith("/document_automations.json", { data: { document_template: { id: 42 }, matter: { id: 3 }, filename: "test", formats: ["original", "pdf"] } }, { fields: expect.stringContaining("documents{") });
     expect(mocks.get).not.toHaveBeenCalled();
   });
-  it.each([[], ["docx"]])("rejects invalid output formats %j", async formats => {
+  it.each([{ formats: [] }, { formats: ["docx"] }])("rejects invalid output formats %j", async ({ formats }) => {
     expect((await handlers.create_document_automation({ template_id: 42, matter_id: 3, filename: "test", formats })).isError).toBe(true);
     expect(mocks.post).not.toHaveBeenCalled();
   });
