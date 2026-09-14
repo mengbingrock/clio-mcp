@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+- `upload_document` now accepts `folder_id` without `matter_id`, allowing uploads
+  to firm-level Clio folders (including the user's Private documents folder) as
+  well as matter folders. Supplying both IDs keeps the existing matter-ownership
+  verification, and every upload reads back its actual parent for confirmation.
+
 ## [2.4.0] - 2026-09-09
 
 This release expands task, calendar, document, and time-entry workflows while
