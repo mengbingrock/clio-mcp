@@ -5,6 +5,7 @@ import path from "path";
 import crypto from "crypto";
 import { clioGet, clioPost, clioPut, clioPatch, getClioBaseUrl, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
+import { registerDocumentVersionTools } from "./documentVersions.js";
 
 const DOCUMENT_PARENT_FIELDS = "parent{id,type,name},matter{id,display_number}";
 
@@ -128,6 +129,7 @@ async function putPartToS3(
 }
 
 export function registerDocumentTools(server: McpServer): void {
+  registerDocumentVersionTools(server);
   server.registerTool(
     "list_documents",
     {
