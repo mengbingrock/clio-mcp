@@ -28,6 +28,7 @@ import { registerTaskTools } from "./tasks.js";
 import { registerCalendarTools } from "./calendar.js";
 import { registerActivityTools } from "./activities.js";
 import { registerBillingTools } from "./billing.js";
+import { registerReportTools } from "./reports.js";
 import { registerNoteTools } from "./notes.js";
 import { registerUserTools } from "./users.js";
 import { registerAuditExportTool } from "./auditExport.js";
@@ -45,6 +46,7 @@ export interface ToolMeta {
 
 /** Tools that write to Clio. Hidden entirely when READ_ONLY is on. */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set([
+  "create_report",
   "create_matter",
   "create_custom_field",
   "upload_document",
@@ -130,6 +132,10 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   log_time_entry: { title: "Log time entry", readOnly: false },
   create_activity: { title: "Create activity", readOnly: false },
   // billing
+  list_reports: { title: "List reports", readOnly: true },
+  create_report: { title: "Create report", readOnly: false, destructive: false, idempotent: false },
+  get_report: { title: "Get report", readOnly: true },
+  download_report: { title: "Get report download", readOnly: true },
   get_billing_summary: { title: "Get billing summary", readOnly: true },
   // notes
   create_note: { title: "Create note", readOnly: false },
@@ -156,6 +162,7 @@ export const REGISTRARS: ReadonlyArray<(server: McpServer) => void> = [
   registerCalendarTools,
   registerActivityTools,
   registerBillingTools,
+  registerReportTools,
   registerNoteTools,
   registerUserTools,
   registerAuditExportTool,

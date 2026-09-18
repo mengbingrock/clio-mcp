@@ -173,6 +173,10 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   create_activity: ["type", "date", "matter_id", "task_id", "quantity_in_hours", "price", "non_billable", "no_charge", "activity_description_id", "user_id", "tax_setting"],
   // billing
   get_billing_summary: ["matter_id"],
+  list_reports: ["kind", "state", "category", "output_format", "source", "created_since", "created_before", "limit"],
+  create_report: ["kind", "format", "start_date", "end_date", "matter_id", "client_id", "user_id", "practice_area_id", "originating_attorney_id", "responsible_attorney_id"],
+  get_report: ["report_id"],
+  download_report: ["report_id"],
   // notes (never subject or body)
   create_note: ["matter_id"],
   list_notes: ["matter_id", "contact_id", "created_since", "updated_since", "limit", "page_token"],

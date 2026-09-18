@@ -1,11 +1,18 @@
 # Clio MCP Server: Connect Claude to Clio Practice Management
 
+### Revenue and payment reports
+
+The connector now includes `list_reports`, `create_report`, `get_report`, and
+`download_report` for Clio Manage's Reports API, including `revenue` and
+`invoice_payments_v2`. Download returns a temporary URL, not file bytes.
+See [report workflow, permissions, and validation limits](docs/reports.md).
+
 > ### Built by [Oktopeak](https://oktopeak.com/?utm_source=github&utm_medium=readme&utm_campaign=clio-mcp&utm_content=top-byline): AI transformation & automation for law firms
 > **Digital transformation for legal and healthcare businesses.** We build AI integrations, workflow automation, and custom software your firm owns outright, including this connector. → [Book a 30-min call](https://calendly.com/office-oktopeak/30min?utm_source=github&utm_medium=readme&utm_campaign=clio-mcp&utm_content=top-byline-call)
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, custom fields, notes, contacts, documents, folders, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 50 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
+> **TL;DR:** 54 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -66,7 +73,7 @@ ABA Opinion 512 (2023) requires attorneys using AI tools to understand how those
 
 - **No data retention by the connector.** The connector does not store matter data, client names, or any Clio content. It fetches from the API and passes results to Claude. The only thing persisted locally is your authentication token, and that is encrypted (see below).
 
-- **Nineteen write tools, all logged, all optional.** The connector can create matters, custom fields, notes, tasks, folders, calendar entries, time entries and activities; update matters, tasks, documents and calendar entries; complete tasks; upload documents; and delete calendar entries. It never touches contacts or billing records. Every write is recorded in the audit log, and `READ_ONLY=true` removes all nineteen write tools from the server entirely (see [Read-only mode](#read-only-mode)), so a firm can start with read access and turn writes on when it has decided to.
+- **Twenty write tools, all logged, all optional.** The connector can create matters, custom fields, notes, tasks, folders, calendar entries, time entries and activities; update matters, tasks, documents and calendar entries; complete tasks; upload documents; and delete calendar entries. It never touches contacts or billing records. Every write is recorded in the audit log, and `READ_ONLY=true` removes all twenty write tools from the server entirely (see [Read-only mode](#read-only-mode)), so a firm can start with read access and turn writes on when it has decided to.
 
 ### Token security: encryption at rest
 
@@ -92,7 +99,7 @@ If you installed this connector via the Clio App Directory's one-click install i
 
 Full data-flow documentation for security reviewers, including a sequence diagram and what the broker persists versus never persists, is in the token broker's repository: [`docs/DATA_FLOW.md`](https://github.com/oktopeak/clio-mcp-backend/blob/main/docs/DATA_FLOW.md).
 
-Everything else — local AES-256-GCM token encryption, the audit log, and the 50 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 50 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
+Everything else — local AES-256-GCM token encryption, the audit log, and the 54 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 54 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
 
 ---
 
@@ -486,6 +493,17 @@ Clio Manage template management and document generation are available through `l
 |---|---|---|
 | `get_billing_summary` | `matter_id` | Returns total billed, outstanding balance, and last invoice date for a matter |
 
+### Reports (4 tools)
+
+| Tool | Purpose |
+|---|---|
+| `list_reports` | Browse existing report metadata with pagination |
+| `create_report` | Generate a report for an explicit date range |
+| `get_report` | Read one report's status |
+| `download_report` | Resolve a completed report's temporary download URL |
+
+See [report usage and limitations](docs/reports.md).
+
 ### Notes (2 tools)
 
 | Tool | Inputs | What it does |
@@ -545,11 +563,11 @@ All settings are passed as environment variables (in your Claude Desktop config 
 | `CLIO_API_BASE` | No | `<region host>/api/v4` | Advanced override for the API base URL. Takes precedence over `CLIO_REGION` |
 | `CLIO_AUTH_URL` | No | `<region host>/oauth/authorize` | Advanced override for the OAuth authorization endpoint |
 | `CLIO_TOKEN_URL` | No | `<region host>/oauth/token` | Advanced override for the OAuth token endpoint |
-| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the nineteen write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
+| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the twenty write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
 
 ### Read-only mode
 
-Set `READ_ONLY=true` and the connector never registers its nineteen write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+Set `READ_ONLY=true` and the connector never registers its twenty write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
 
 For Claude Desktop, add it next to the other variables:
 
@@ -703,7 +721,7 @@ We're a 7-person in-house product team building AI solutions for regulated indus
 
 ## Using the connector as a library
 
-Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 50 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
+Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 54 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
