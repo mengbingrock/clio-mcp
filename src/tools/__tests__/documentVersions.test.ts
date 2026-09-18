@@ -30,6 +30,11 @@ describe("document version upload", () => {
     expect(mocks.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined();
     expect(mocks.fetch.mock.calls[0][1].redirect).toBe("error");
   });
+  it("uses per-part signed headers, never version-level single-upload headers", async () => {
+    mocks.post.mockResolvedValue({ data: { id: 42, latest_document_version: { uuid: "new", put_headers: [{ name: "x-amz-server-side-encryption", value: "AES256" }], multiparts: [{ part_number: 1, put_url: "https://bucket.s3.amazonaws.com/object", put_headers: [{ name: "Content-MD5", value: "signed-md5" }] }] } } });
+    expect((await call()).isError).toBeUndefined();
+    expect(mocks.fetch.mock.calls[0][1].headers).toEqual({ "Content-MD5": "signed-md5" });
+  });
   it("blocks stale source before any write", async () => {
     mocks.get.mockReset().mockResolvedValue({ data: { ...before, latest_document_version: { uuid: "other", fully_uploaded: true } } });
     expect((await call()).isError).toBe(true); expect(mocks.post).not.toHaveBeenCalled();

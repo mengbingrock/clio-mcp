@@ -79,7 +79,9 @@ export function registerDocumentVersionTools(server: McpServer): void {
         const url = new URL(upload.put_url);
         if (url.protocol !== "https:" || url.username || url.password || !(url.hostname.endsWith(".amazonaws.com") || url.hostname.endsWith(".amazonaws.com.cn"))) throw new Error("Unexpected storage URL");
         const headers: Record<string, string> = {};
-        for (const h of version.put_headers ?? []) {
+        // Multipart signed requests carry per-part headers; version-level headers
+        // describe a single-part PUT and can invalidate the multipart signature.
+        for (const h of upload.put_headers ?? []) {
           if (/^(authorization|cookie|host)$/i.test(h.name)) throw new Error("Unexpected storage header");
           headers[h.name] = h.value;
         }
