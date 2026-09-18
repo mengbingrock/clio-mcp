@@ -43,11 +43,11 @@ describe("README tool counts", () => {
   });
 
   it("describes the read-only mode with the real number of write tools", () => {
-    const written = readme.match(/never registers its ([a-z]+) write tools/);
+    const written = readme.match(/never registers its ([a-z-]+) write tools/);
     expect(written, "README no longer describes the read-only write-tool count").not.toBeNull();
     const words: Record<string, number> = {
       seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
-      fifteen: 15, nineteen: 19, twenty: 20,
+      fifteen: 15, nineteen: 19, twenty: 20, "twenty-one": 21,
     };
     expect(words[written![1]], `README says "${written![1]}" write tools`).toBe(WRITE_TOOLS.size);
   });

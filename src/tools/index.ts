@@ -50,6 +50,7 @@ export const WRITE_TOOLS: ReadonlySet<string> = new Set([
   "create_matter",
   "create_custom_field",
   "upload_document",
+  "upload_document_version",
   "create_document_template",
   "update_document_template",
   "delete_document_template",
@@ -99,6 +100,8 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   list_documents: { title: "List documents", readOnly: true },
   get_document: { title: "Get document", readOnly: true },
   upload_document: { title: "Upload document", readOnly: false },
+  upload_document_version: { title: "Upload new document version", readOnly: false },
+  list_document_versions: { title: "List document versions", readOnly: true },
   update_document: { title: "Update document", readOnly: false, idempotent: true },
   // document templates and generation
   list_document_templates: { title: "List document templates", readOnly: true },
