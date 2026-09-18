@@ -13,7 +13,7 @@ const DOCUMENT_LIST_FIELDS =
   `id,name,content_type,size,created_at,${DOCUMENT_PARENT_FIELDS}`;
 
 const DOCUMENT_DETAIL_FIELDS =
-  `id,name,content_type,size,created_at,${DOCUMENT_PARENT_FIELDS},latest_document_version{uuid,created_at,size}`;
+  `id,name,content_type,size,created_at,${DOCUMENT_PARENT_FIELDS},latest_document_version{id,uuid,created_at,size}`;
 
 const FOLDER_VERIFY_FIELDS = "id,name,parent{id,type},matter{id,display_number}";
 
@@ -216,8 +216,9 @@ export function registerDocumentTools(server: McpServer): void {
         const doc = data.data;
 
         const versionUuid = doc.latest_document_version?.uuid ?? null;
-        const download_url = versionUuid
-          ? `${getClioBaseUrl()}/documents/${doc.id}/download?version_uuid=${versionUuid}`
+        const versionId = doc.latest_document_version?.id ?? null;
+        const download_url = versionId
+          ? `${getClioBaseUrl()}/documents/${doc.id}/download.json?document_version_id=${versionId}`
           : null;
 
         const result = {
@@ -229,6 +230,7 @@ export function registerDocumentTools(server: McpServer): void {
           matter: doc.matter ? { id: doc.matter.id, display_number: doc.matter.display_number } : null,
           ...mapDocumentParent(doc),
           latest_version_uuid: versionUuid,
+          latest_version_id: versionId,
           download_url,
         };
 
