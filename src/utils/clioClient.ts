@@ -88,6 +88,7 @@ async function clioFetch(url: string, init: RequestInit): Promise<Response> {
       throw new Error(`Clio rate limit exceeded after ${attempt} retries (${Math.round(totalWaited)}ms total wait).`);
     }
 
+    if (res.status === 303 && init.redirect === "manual") return res;
     if (!res.ok) {
       const raw = await res.text();
       let msg = raw;
@@ -122,6 +123,24 @@ export async function clioGet(path: string, params?: Record<string, string>): Pr
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   });
   return res.json();
+}
+
+/** Resolve Clio's report download redirect without forwarding OAuth to storage. */
+export async function clioReportDownloadUrl(reportId: number): Promise<string> {
+  if (!Number.isSafeInteger(reportId) || reportId <= 0) throw new Error("Invalid report ID");
+  const token = await resolveAccessToken();
+  const res = await clioFetch(`${getBase()}/reports/${reportId}/download.json`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: "manual",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (res.status !== 303) throw new Error("Expected a 303 report download redirect");
+  const location = res.headers.get("location");
+  if (!location) throw new Error("Report download redirect is missing Location");
+  let url: URL;
+  try { url = new URL(location); } catch { throw new Error("Invalid report download URL"); }
+  if (url.protocol !== "https:" || url.username || url.password) throw new Error("Unsafe report download URL");
+  return url.toString();
 }
 
 const DEFAULT_MAX_PAGES = 100;
