@@ -134,6 +134,48 @@ describe("document parent readback", () => {
   });
 });
 
+describe("list_documents restricted-folder traversal", () => {
+  it("searches descendants by default when a query is constrained to a parent folder", async () => {
+    mockClioGet.mockResolvedValue({ data: [PRIVATE_DOCUMENT], meta: { records: 1 } });
+
+    await handlers["list_documents"]({ parent_id: 300, query: "policy", limit: 25 });
+
+    expect(mockClioGet).toHaveBeenCalledWith(
+      "/documents.json",
+      expect.objectContaining({ parent_id: "300", query: "policy", scope: "descendants" }),
+    );
+    expect(mockAppendAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "success", args: expect.objectContaining({ scope: "descendants" }) }),
+    );
+  });
+
+  it("honors an explicit children scope", async () => {
+    mockClioGet.mockResolvedValue({ data: [], meta: { records: 0 } });
+
+    await handlers["list_documents"]({ parent_id: 300, query: "policy", scope: "children", limit: 25 });
+
+    expect(mockClioGet.mock.calls[0][1]).toMatchObject({ scope: "children" });
+  });
+
+  it("requires parent_id when scope is provided", async () => {
+    const result = await handlers["list_documents"]({ query: "policy", scope: "descendants", limit: 25 }) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("scope requires parent_id");
+    expect(mockClioGet).not.toHaveBeenCalled();
+  });
+
+  it("turns a 403 into actionable Clio permission guidance", async () => {
+    mockClioGet.mockRejectedValue(new MockClioApiError(403, "User is forbidden from taking that action"));
+
+    const result = await handlers["list_documents"]({ parent_id: 300, query: "policy", limit: 25 }) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("OAuth application has Documents read access");
+    expect(result.content[0].text).toContain("reauthenticate");
+  });
+});
+
 describe("upload_document", () => {
   it("uploads to a folder only after verifying that it belongs to the matter", async () => {
     mockClioGet

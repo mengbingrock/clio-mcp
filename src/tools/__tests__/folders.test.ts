@@ -231,6 +231,46 @@ describe("list_folders", () => {
     expect(parsed.has_more).toBe(false);
     expect(parsed.next_page_token).toBeNull();
   });
+
+  it("searches descendants by default when a query is constrained to a parent folder", async () => {
+    mockClioGet.mockResolvedValue({ data: [MOCK_FOLDER], meta: { records: 1 } });
+
+    await handlers["list_folders"]({ parent_id: 300, query: "board", limit: 25 });
+
+    expect(mockClioGet).toHaveBeenCalledWith(
+      "/folders.json",
+      expect.objectContaining({ parent_id: "300", query: "board", scope: "descendants" }),
+    );
+    expect(mockAppendAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ args: expect.objectContaining({ scope: "descendants" }) }),
+    );
+  });
+
+  it("honors an explicit children scope", async () => {
+    mockClioGet.mockResolvedValue({ data: [], meta: { records: 0 } });
+
+    await handlers["list_folders"]({ parent_id: 300, query: "board", scope: "children", limit: 25 });
+
+    expect(mockClioGet.mock.calls[0][1]).toMatchObject({ scope: "children" });
+  });
+
+  it("requires parent_id when scope is provided", async () => {
+    const result = await handlers["list_folders"]({ query: "board", scope: "descendants", limit: 25 }) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("scope requires parent_id");
+    expect(mockClioGet).not.toHaveBeenCalled();
+  });
+
+  it("turns a 403 into actionable Clio permission guidance", async () => {
+    mockClioGet.mockRejectedValue(new MockClioApiError(403, "User is forbidden from taking that action"));
+
+    const result = await handlers["list_folders"]({ parent_id: 300, query: "board", limit: 25 }) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("OAuth application has Documents read access");
+    expect(result.content[0].text).toContain("reauthenticate");
+  });
 });
 
 describe("create_folder if_not_exists", () => {

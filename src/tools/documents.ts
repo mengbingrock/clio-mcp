@@ -16,6 +16,18 @@ const DOCUMENT_DETAIL_FIELDS =
 
 const FOLDER_VERIFY_FIELDS = "id,name,parent{id,type},matter{id,display_number}";
 
+const documentAccessError = (err: unknown): string => {
+  if (err instanceof ClioApiError && err.statusCode === 403) {
+    return (
+      "Clio denied access to Documents (403). This connector honors Clio's permissions and cannot " +
+      "bypass them. Confirm that the authenticated Clio user can open the target folder, that the " +
+      "OAuth application has Documents read access, and reauthenticate after any OAuth permission " +
+      `change. Original error: ${err.message}`
+    );
+  }
+  return err instanceof Error ? err.message : String(err);
+};
+
 type DocumentParentRef = { id: number; type: "Matter" | "Folder" };
 
 function mapDocumentParent(document: any): {
@@ -131,28 +143,42 @@ export function registerDocumentTools(server: McpServer): void {
   server.registerTool(
     "list_documents",
     {
-      description: "List documents in Clio, filtered by matter or folder",
+      description:
+        "List documents in Clio, filtered by matter or folder. Clio enforces the authenticated " +
+        "user's access grants. Use scope='descendants' with parent_id to search recursively inside " +
+        "a nested or restricted folder that the user is permitted to access.",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter documents by matter ID"),
         parent_id: z.number().int().positive().optional().describe("Filter documents by parent ID (folder)"),
-        query: z.string().optional().describe("Full-text search string for document names"),
+        query: z.string().optional().describe("Wildcard search string for document names (not document contents)"),
+        scope: z.enum(["children", "descendants"]).optional().describe(
+          "When parent_id is provided, search only immediate children or all descendants. Defaults to descendants when query is present, otherwise children."
+        ),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
         page_token: z.string().optional().describe("Cursor from a previous list_documents response to fetch the next page"),
       },
     },
-    async ({ matter_id, parent_id, query, limit, page_token }) => {
+    async ({ matter_id, parent_id, query, scope, limit, page_token }) => {
       if (!matter_id && !parent_id && !query) {
         return {
           content: [{ type: "text", text: "Error: provide at least one of matter_id, parent_id, or query" }],
           isError: true,
         };
       }
+      if (scope && !parent_id) {
+        return {
+          content: [{ type: "text", text: "Error: scope requires parent_id because Clio applies it relative to a folder." }],
+          isError: true,
+        };
+      }
+      const effectiveScope = scope ?? (parent_id && query ? "descendants" : undefined);
 
       try {
         const params: Record<string, string> = { fields: DOCUMENT_LIST_FIELDS, limit: String(limit) };
         if (matter_id) params["matter_id"] = String(matter_id);
         if (parent_id) params["parent_id"] = String(parent_id);
         if (query) params["query"] = query;
+        if (effectiveScope) params["scope"] = effectiveScope;
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/documents.json", params);
@@ -161,7 +187,7 @@ export function registerDocumentTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "list_documents",
-          args: { matter_id, parent_id, query, limit, page_token },
+          args: { matter_id, parent_id, query, scope: effectiveScope, limit, page_token },
           outcome: "success",
           result_count: docs?.length ?? 0,
           ...(matter_id && { matter_id }),
@@ -190,12 +216,12 @@ export function registerDocumentTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "list_documents",
-          args: { matter_id, parent_id, query, limit, page_token },
+          args: { matter_id, parent_id, query, scope: effectiveScope, limit, page_token },
           outcome: "error",
-          error_message: err.message,
+          error_message: documentAccessError(err),
           ...(matter_id && { matter_id }),
         });
-        return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+        return { content: [{ type: "text", text: `Error: ${documentAccessError(err)}` }], isError: true };
       }
     }
   );

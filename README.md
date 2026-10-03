@@ -440,7 +440,7 @@ Claude selects and calls these tools automatically based on your questions. You 
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_documents` | `matter_id`, `parent_id`, `query`, `limit`, `page_token` | Lists or full-text searches documents; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
+| `list_documents` | `matter_id`, `parent_id`, `query`, `scope` (`children`/`descendants`), `limit`, `page_token` | Lists or name-searches documents that the authenticated Clio user may access; at least one of `matter_id`, `parent_id`, or `query` is required; a query constrained by `parent_id` searches descendants by default so nested documents in an authorized restricted folder are included; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `get_document` | `document_id` | Returns document metadata, its actual parent folder, and a direct download URL |
 | `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root (`matter_id`) or directly to a matter/firm-level folder (`folder_id`), including the user's Private documents folder, using Clio's multipart S3 upload flow; reads back the actual parent, and requires at least one target ID |
 | `update_document` | `document_id`, `name`, `matter_id`, `folder_id` | Renames and/or moves a document; a target folder is verified against the target matter before the move, and the actual parent is read back afterward |
@@ -453,7 +453,7 @@ Clio Manage template management and document generation are available through `l
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_folders` | `matter_id`, `parent_id`, `query`, `limit`, `page_token` | Lists or full-text searches folders; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
+| `list_folders` | `matter_id`, `parent_id`, `query`, `scope` (`children`/`descendants`), `limit`, `page_token` | Lists or name-searches folders that the authenticated Clio user may access; at least one of `matter_id`, `parent_id`, or `query` is required; a query constrained by `parent_id` searches descendants by default for recursive traversal of an authorized restricted folder; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `folder_exists` | `matter_id` or `parent_folder_id`, `name` | Checks whether a folder with the given exact name already exists; fully paginates and never relies on parent-type filtering, so it won't miss folders whose matter's document root is itself a Folder node |
 | `create_folder` | `name`, `matter_id` or `parent_folder_id`, `if_not_exists` | Creates a folder at a matter's document root or under an existing folder; call `folder_exists` first to avoid duplicates |
 
