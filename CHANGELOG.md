@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- `list_document_versions` returns paginated version history for an existing
+  document, including incomplete uploads. `upload_document_version` adds a
+  revision to that same document after checking the caller's expected current
+  version, preserves its name and location, and verifies the new version's
+  metadata after upload. Read-only mode hides the upload tool.
+
 ## [2.5.0] - 2026-10-03
 
 This release expands firm-level document workflows, adds document-template

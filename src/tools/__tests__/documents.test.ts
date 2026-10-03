@@ -117,6 +117,13 @@ beforeEach(() => {
 });
 
 describe("document parent readback", () => {
+  it("pins API download to the numeric version ID, not an ignored UUID parameter", async () => {
+    mockClioGet.mockResolvedValue({ data: { ...DOCUMENT, latest_document_version: { ...DOCUMENT.latest_document_version, id: 123 } } });
+    const result = await handlers["get_document"]({ document_id: 500 });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.latest_version_id).toBe(123);
+    expect(parsed.download_url).toBe("https://app.clio.com/api/v4/documents/500/download.json?document_version_id=123");
+  });
   it("returns the actual parent folder from get_document", async () => {
     mockClioGet.mockResolvedValue({ data: DOCUMENT });
     const result = await handlers["get_document"]({ document_id: 500 }) as any;
