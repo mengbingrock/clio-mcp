@@ -136,7 +136,7 @@ The connector's own no-retention posture (it stores nothing but your encrypted t
 
 The connector ships as `@oktopeak/clio-mcp` on npm. Like every npm package, the published version can be updated at any time by the maintainer. Standard hygiene applies:
 
-- **Pin versions in production.** Use an exact version such as `@oktopeak/clio-mcp@2.4.0` (the current release in `package.json`) rather than a range like `^2.0.0`. Audit before upgrading.
+- **Pin versions in production.** Use an exact version such as `@oktopeak/clio-mcp@2.5.0` (the current release in `package.json`) rather than a range like `^2.0.0`. Audit before upgrading.
 - **Review the diff.** Every release is a tagged commit on GitHub. Verify changes before pulling a new version into a firm-wide deployment.
 - **Build from source.** If your firm requires it, clone the repo, audit the code, run from your own build artifact. We do not gate any feature behind the npm distribution.
 - **Maintainers.** Published by [Oktopeak](https://oktopeak.com), a public team with public commits and a public npm publisher account. Not anonymous. We respond to security reports at `office@oktopeak.com`.
@@ -567,7 +567,7 @@ All settings are passed as environment variables (in your Claude Desktop config 
 
 ### Read-only mode
 
-Set `READ_ONLY=true` and the connector never registers its twenty write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+Set `READ_ONLY=true` and the connector never registers its twenty write tools (`create_report`, `create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
 
 For Claude Desktop, add it next to the other variables:
 

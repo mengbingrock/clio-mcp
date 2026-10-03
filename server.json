@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.oktopeak/clio-mcp",
-  "description": "Connect Claude to Clio: 42 tools for matters, contacts, tasks, calendar, documents and billing.",
+  "description": "Connect Claude to Clio: 54 tools for matters, contacts, tasks, calendar, documents, reports and billing.",
   "websiteUrl": "https://oktopeak.com/clio-mcp/",
   "repository": {
     "url": "https://github.com/oktopeak/clio-mcp",
     "source": "github"
   },
-  "version": "2.4.0",
+  "version": "2.5.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@oktopeak/clio-mcp",
-      "version": "2.4.0",
+      "version": "2.5.0",
       "transport": {
         "type": "stdio"
       },
@@ -54,7 +54,7 @@
         },
         {
           "name": "READ_ONLY",
-          "description": "Optional. 'true', '1' or 'yes' leaves the fifteen write tools (create_matter, create_custom_field, create_note, create_task, update_task, complete_task, create_calendar_entry, update_calendar_entry, delete_calendar_entry, log_time_entry, create_activity, update_matter, create_folder, upload_document, update_document) unregistered so Claude can read Clio but never change it. Works on both transports.",
+          "description": "Optional. 'true', '1' or 'yes' leaves the twenty write tools (create_report, create_matter, update_matter, create_custom_field, create_note, create_task, update_task, complete_task, create_calendar_entry, update_calendar_entry, delete_calendar_entry, log_time_entry, create_activity, upload_document, update_document, create_folder, create_document_template, update_document_template, delete_document_template, create_document_automation) unregistered so Claude can read Clio but never change it. Works on both transports.",
           "isRequired": false,
           "format": "string",
           "isSecret": false
@@ -85,7 +85,7 @@
     {
       "registryType": "npm",
       "identifier": "@oktopeak/clio-mcp",
-      "version": "2.4.0",
+      "version": "2.5.0",
       "transport": {
         "type": "stdio"
       },
