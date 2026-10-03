@@ -12,7 +12,7 @@ See [report workflow, permissions, and validation limits](docs/reports.md).
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, custom fields, notes, contacts, documents, folders, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 54 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
+> **TL;DR:** 56 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -136,7 +136,7 @@ The connector's own no-retention posture (it stores nothing but your encrypted t
 
 The connector ships as `@oktopeak/clio-mcp` on npm. Like every npm package, the published version can be updated at any time by the maintainer. Standard hygiene applies:
 
-- **Pin versions in production.** Use an exact version such as `@oktopeak/clio-mcp@2.4.0` (the current release in `package.json`) rather than a range like `^2.0.0`. Audit before upgrading.
+- **Pin versions in production.** Use an exact version such as `@oktopeak/clio-mcp@2.5.0` (the current release in `package.json`) rather than a range like `^2.0.0`. Audit before upgrading.
 - **Review the diff.** Every release is a tagged commit on GitHub. Verify changes before pulling a new version into a firm-wide deployment.
 - **Build from source.** If your firm requires it, clone the repo, audit the code, run from your own build artifact. We do not gate any feature behind the npm distribution.
 - **Maintainers.** Published by [Oktopeak](https://oktopeak.com), a public team with public commits and a public npm publisher account. Not anonymous. We respond to security reports at `office@oktopeak.com`.
@@ -447,7 +447,7 @@ API: [Clio Manage reference](https://docs.developers.clio.com/clio-manage/api-re
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_documents` | `matter_id`, `parent_id`, `query`, `limit`, `page_token` | Lists or full-text searches documents; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
+| `list_documents` | `matter_id`, `parent_id`, `query`, `scope` (`children`/`descendants`), `limit`, `page_token` | Lists or name-searches documents that the authenticated Clio user may access; at least one of `matter_id`, `parent_id`, or `query` is required; a query constrained by `parent_id` searches descendants by default so nested documents in an authorized restricted folder are included; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `get_document` | `document_id` | Returns document metadata, its actual parent folder, and a direct download URL |
 | `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root (`matter_id`) or directly to a matter/firm-level folder (`folder_id`), including the user's Private documents folder, using Clio's multipart S3 upload flow; reads back the actual parent, and requires at least one target ID |
 | `update_document` | `document_id`, `name`, `matter_id`, `folder_id` | Renames and/or moves a document; a target folder is verified against the target matter before the move, and the actual parent is read back afterward |
@@ -460,7 +460,7 @@ Clio Manage template management and document generation are available through `l
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_folders` | `matter_id`, `parent_id`, `query`, `limit`, `page_token` | Lists or full-text searches folders; at least one of `matter_id`, `parent_id`, or `query` is required; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
+| `list_folders` | `matter_id`, `parent_id`, `query`, `scope` (`children`/`descendants`), `limit`, `page_token` | Lists or name-searches folders that the authenticated Clio user may access; at least one of `matter_id`, `parent_id`, or `query` is required; a query constrained by `parent_id` searches descendants by default for recursive traversal of an authorized restricted folder; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
 | `folder_exists` | `matter_id` or `parent_folder_id`, `name` | Checks whether a folder with the given exact name already exists; fully paginates and never relies on parent-type filtering, so it won't miss folders whose matter's document root is itself a Folder node |
 | `create_folder` | `name`, `matter_id` or `parent_folder_id`, `if_not_exists` | Creates a folder at a matter's document root or under an existing folder; call `folder_exists` first to avoid duplicates |
 
@@ -574,7 +574,7 @@ All settings are passed as environment variables (in your Claude Desktop config 
 
 ### Read-only mode
 
-Set `READ_ONLY=true` and the connector never registers its twenty-one write tools (`create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `upload_document_version`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+Set `READ_ONLY=true` and the connector never registers its twenty-one write tools (`create_report`, `create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `upload_document_version`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
 
 For Claude Desktop, add it next to the other variables:
 

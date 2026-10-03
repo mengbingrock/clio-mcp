@@ -5,6 +5,18 @@ import { appendAuditLog } from "../utils/auditLog.js";
 
 const FOLDER_LIST_FIELDS = "id,name,parent{id,type},created_at,matter{id,display_number}";
 
+const folderAccessError = (err: unknown): string => {
+  if (err instanceof ClioApiError && err.statusCode === 403) {
+    return (
+      "Clio denied access to Documents/Folders (403). This connector honors Clio's permissions and " +
+      "cannot bypass them. Confirm that the authenticated Clio user can open the target folder, " +
+      "that the OAuth application has Documents read access, and reauthenticate after any OAuth " +
+      `permission change. Original error: ${err.message}`
+    );
+  }
+  return err instanceof Error ? err.message : String(err);
+};
+
 type ParentRef = { id: number; type: "Matter" | "Folder" };
 
 /**
@@ -58,28 +70,42 @@ export function registerFolderTools(server: McpServer): void {
   server.registerTool(
     "list_folders",
     {
-      description: "List folders in Clio, filtered by matter or parent folder",
+      description:
+        "List folders in Clio, filtered by matter or parent folder. Clio enforces the authenticated " +
+        "user's access grants. Use scope='descendants' with parent_id to search recursively inside " +
+        "a nested or restricted folder that the user is permitted to access.",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("List folders at this matter's document root"),
         parent_id: z.number().int().positive().optional().describe("List folders under this parent folder ID"),
-        query: z.string().optional().describe("Full-text search string for folder names"),
+        query: z.string().optional().describe("Wildcard search string for folder names"),
+        scope: z.enum(["children", "descendants"]).optional().describe(
+          "When parent_id is provided, search only immediate children or all descendants. Defaults to descendants when query is present, otherwise children."
+        ),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
         page_token: z.string().optional().describe("Cursor from a previous list_folders response to fetch the next page"),
       },
     },
-    async ({ matter_id, parent_id, query, limit, page_token }) => {
+    async ({ matter_id, parent_id, query, scope, limit, page_token }) => {
       if (!matter_id && !parent_id && !query) {
         return {
           content: [{ type: "text", text: "Error: provide at least one of matter_id, parent_id, or query" }],
           isError: true,
         };
       }
+      if (scope && !parent_id) {
+        return {
+          content: [{ type: "text", text: "Error: scope requires parent_id because Clio applies it relative to a folder." }],
+          isError: true,
+        };
+      }
+      const effectiveScope = scope ?? (parent_id && query ? "descendants" : undefined);
 
       try {
         const params: Record<string, string> = { fields: FOLDER_LIST_FIELDS, limit: String(limit) };
         if (matter_id) params["matter_id"] = String(matter_id);
         if (parent_id) params["parent_id"] = String(parent_id);
         if (query) params["query"] = query;
+        if (effectiveScope) params["scope"] = effectiveScope;
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/folders.json", params);
@@ -88,7 +114,7 @@ export function registerFolderTools(server: McpServer): void {
 
         await appendAuditLog({
           tool: "list_folders",
-          args: { matter_id, parent_id, limit, page_token },
+          args: { matter_id, parent_id, scope: effectiveScope, limit, page_token },
           outcome: "success",
           result_count: folders?.length ?? 0,
           ...(matter_id && { matter_id }),
@@ -111,12 +137,12 @@ export function registerFolderTools(server: McpServer): void {
       } catch (err: any) {
         await appendAuditLog({
           tool: "list_folders",
-          args: { matter_id, parent_id, limit, page_token },
+          args: { matter_id, parent_id, scope: effectiveScope, limit, page_token },
           outcome: "error",
-          error_message: err.message,
+          error_message: folderAccessError(err),
           ...(matter_id && { matter_id }),
         });
-        return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+        return { content: [{ type: "text", text: `Error: ${folderAccessError(err)}` }], isError: true };
       }
     }
   );

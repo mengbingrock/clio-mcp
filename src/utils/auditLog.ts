@@ -137,7 +137,7 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   search_contacts: ["limit", "page_token"],
   get_contact: ["contact_id"],
   // documents (never the query, the file path or the file name)
-  list_documents: ["matter_id", "parent_id", "limit", "page_token"],
+  list_documents: ["matter_id", "parent_id", "scope", "limit", "page_token"],
   list_document_templates: ["limit"],
   get_document_template: ["template_id"],
   create_document_template: ["document_category_id"],
@@ -152,7 +152,7 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   list_document_versions: ["document_id", "limit", "page_token"],
   update_document: ["document_id", "matter_id", "folder_id"],
   // folders (never the folder name or the search query, which are usually client names)
-  list_folders: ["matter_id", "parent_id", "limit", "page_token"],
+  list_folders: ["matter_id", "parent_id", "scope", "limit", "page_token"],
   folder_exists: ["matter_id", "parent_folder_id"],
   create_folder: ["matter_id", "parent_folder_id", "if_not_exists"],
   // tasks (never name or description)
