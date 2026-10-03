@@ -4,19 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-### Added
-- `list_document_versions` returns paginated version history for an existing
-  document, including incomplete uploads. `upload_document_version` adds a
-  revision to that same document after checking the caller's expected current
-  version, preserves its name and location, and verifies the new version's
-  metadata after upload. Read-only mode hides the upload tool.
-
 ## [2.5.0] - 2026-10-03
 
 This release expands firm-level document workflows, adds document-template
-generation and revenue-report jobs, and fixes recursive search inside authorized
-restricted folders. Clio remains the source of truth for user and OAuth access;
-the connector does not bypass access grants.
+generation, document-version uploads, and revenue-report jobs, and fixes
+recursive search inside authorized restricted folders. Clio remains the source
+of truth for user and OAuth access; the connector does not bypass access grants.
 
 ### Added
 - Eight Clio Manage document-template and generation tools: list, inspect,
@@ -30,6 +23,11 @@ the connector does not bypass access grants.
   `list_folders`. A name query constrained to a parent folder now searches all
   descendants by default, so nested documents in an authorized partner or
   administrative folder are not silently missed.
+- `list_document_versions` returns paginated version history for an existing
+  document, including incomplete uploads. `upload_document_version` adds a
+  revision to that same document after checking the caller's expected current
+  version, preserves its name and location, and verifies the new version's
+  metadata after upload. Read-only mode hides the upload tool.
 
 ### Fixed
 - `upload_document` now accepts `folder_id` without `matter_id`, allowing uploads
@@ -39,7 +37,7 @@ the connector does not bypass access grants.
 - Document and folder 403 responses now explain the two relevant checks: the
   authenticated user's Clio access and the application's Documents OAuth scope,
   including the need to reauthorize after an app-scope change.
-- MCP Registry metadata now reports the actual 54-tool total and all twenty
+- MCP Registry metadata now reports the actual 56-tool total and all twenty-one
   write tools hidden by read-only mode.
 
 ## [2.4.0] - 2026-09-09
