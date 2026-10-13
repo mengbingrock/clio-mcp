@@ -19,6 +19,7 @@ import { registerMatterTools } from "./matters.js";
 import { registerContactTools } from "./contacts.js";
 import { registerDocumentTools } from "./documents.js";
 import { registerDocumentTemplateTools } from "./documentTemplates.js";
+import { registerDocumentDownloadTools } from "./documentDownloads.js";
 import { registerFolderTools } from "./folders.js";
 import { registerCustomFieldTools } from "./customFields.js";
 import { registerMatterStageTools } from "./matterStages.js";
@@ -99,6 +100,7 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   // documents
   list_documents: { title: "List documents", readOnly: true },
   get_document: { title: "Get document", readOnly: true },
+  download_document: { title: "Download document version", readOnly: true, idempotent: false },
   upload_document: { title: "Upload document", readOnly: false },
   upload_document_version: { title: "Upload new document version", readOnly: false },
   list_document_versions: { title: "List document versions", readOnly: true },
@@ -106,6 +108,7 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   // document templates and generation
   list_document_templates: { title: "List document templates", readOnly: true },
   get_document_template: { title: "Get document template", readOnly: true },
+  download_document_template: { title: "Download original template", readOnly: true, idempotent: false },
   create_document_template: { title: "Create document template", readOnly: false },
   update_document_template: { title: "Update document template", readOnly: false, idempotent: true },
   delete_document_template: { title: "Delete document template", readOnly: false, destructive: true, idempotent: true },
@@ -156,6 +159,7 @@ export const REGISTRARS: ReadonlyArray<(server: McpServer) => void> = [
   registerContactTools,
   registerDocumentTools,
   registerDocumentTemplateTools,
+  registerDocumentDownloadTools,
   registerFolderTools,
   registerCustomFieldTools,
   registerMatterStageTools,

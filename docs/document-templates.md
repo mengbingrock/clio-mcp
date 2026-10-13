@@ -6,6 +6,7 @@ These tools wrap the [official Clio Manage v4 API](https://docs.developers.clio.
 | --- | --- |
 | list_document_templates | GET /document_templates.json |
 | get_document_template | GET /document_templates/{id}.json |
+| download_document_template | GET /document_templates/{id}/download.json |
 | create_document_template | POST /document_templates.json |
 | update_document_template | PATCH /document_templates/{id}.json |
 | delete_document_template | DELETE /document_templates/{id}.json |
@@ -23,7 +24,7 @@ These tools wrap the [official Clio Manage v4 API](https://docs.developers.clio.
 
 Read-only mode hides all four write tools. The same registry supports stdio, HTTP and library consumers. Existing session authentication and region routing apply. The tools do not grant permissions: Clio account access, app scopes and subscription availability must be checked during deployment; a 403 is not evidence the API is missing. Reauthorization may be needed after app scope changes.
 
-Template file contents and filenames are excluded from these tools' audit entries. Template contents download, category management, conditional Clio Draft authoring, and automatic Carbone conversion are not part of this change.
+Template file contents and filenames are excluded from these tools' audit entries. For original template bytes or a pinned document version, use the [download tools](document-downloads.md). Category management, conditional Clio Draft authoring, and automatic Carbone conversion are not included.
 
 ## Verification
 
