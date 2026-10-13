@@ -12,7 +12,7 @@ See [report workflow, permissions, and validation limits](docs/reports.md).
 
 Open-source Model Context Protocol (MCP) connector that lets Claude read live data from [Clio](https://www.clio.com) (matters, custom fields, notes, contacts, documents, folders, tasks, calendar, and billing) without copying client information into chat windows. Built for law firms that care about attorney-client privilege, ABA Opinion 512 compliance, and keeping AI workflows inside their existing practice management stack.
 
-> **TL;DR:** 56 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
+> **TL;DR:** 58 Clio tools exposed to Claude across stdio and HTTP/SSE transports. Audit-logged for ABA Opinion 512. OAuth tokens encrypted at rest with AES-256-GCM. Local-only by default: you register your own Clio developer app, and no relay server sits in between. A separate one-click "listed" variant for the Clio App Directory uses a minimal login-only broker instead, see [Listed / one-click install variant](#listed--one-click-install-variant-app-directory). MIT license, free forever.
 
 **Who this is for:** Law firm IT, legal operations teams, tech-forward partners, and engineers at legal tech companies. If you can follow a five-step terminal install, you can use this.
 
@@ -99,7 +99,7 @@ If you installed this connector via the Clio App Directory's one-click install i
 
 Full data-flow documentation for security reviewers, including a sequence diagram and what the broker persists versus never persists, is in the token broker's repository: [`docs/DATA_FLOW.md`](https://github.com/oktopeak/clio-mcp-backend/blob/main/docs/DATA_FLOW.md).
 
-Everything else — local AES-256-GCM token encryption, the audit log, and the 56 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 56 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
+Everything else — local AES-256-GCM token encryption, the audit log, and the 58 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 58 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
 
 ---
 
@@ -436,7 +436,9 @@ Claude selects and calls these tools automatically based on your questions. You 
 |---|---|---|
 | `list_matter_relationships` | `matter_id`, `limit`, `page_token` | Lists the contacts attached to a matter and the role each plays (co-counsel, expert, fact witness, opposing counsel) |
 
-### Documents (6 tools)
+### Documents (7 tools)
+
+`download_document(document_id, document_version_id?, output_path?, max_bytes?)` downloads a pinned revision directly. Local stdio saves exclusively with SHA-256; hosted mode returns a temporary sensitive URL. See [download workflow](docs/document-downloads.md).
 
 `list_document_versions(document_id, limit?, page_token?)` reads paginated history, including incomplete uploads.
 `upload_document_version(document_id, expected_version_uuid, file_path)` adds a revision to that same document, preserving its name, matter and folder. It accepts nonempty files up to 50 MiB and requires the fully uploaded source UUID observed before editing. It does **not** update a reusable document template.
@@ -452,7 +454,9 @@ API: [Clio Manage reference](https://docs.developers.clio.com/clio-manage/api-re
 | `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root (`matter_id`) or directly to a matter/firm-level folder (`folder_id`), including the user's Private documents folder, using Clio's multipart S3 upload flow; reads back the actual parent, and requires at least one target ID |
 | `update_document` | `document_id`, `name`, `matter_id`, `folder_id` | Renames and/or moves a document; a target folder is verified against the target matter before the move, and the actual parent is read back afterward |
 
-### Document templates and generation (8 tools)
+### Document templates and generation (9 tools)
+
+`download_document_template(template_id, output_path?, max_bytes?)` acquires original template bytes, without running Document Automation. See [download workflow](docs/document-downloads.md).
 
 Clio Manage template management and document generation are available through `list_document_templates`, `get_document_template`, `create_document_template`, `update_document_template`, `delete_document_template`, `list_document_automations`, `create_document_automation`, and `get_document_automation`. See [document template workflow and API mapping](docs/document-templates.md) for parameters, permissions, and verification limitations.
 
@@ -728,7 +732,7 @@ We're a 7-person in-house product team building AI solutions for regulated indus
 
 ## Using the connector as a library
 
-Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 56 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
+Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 58 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

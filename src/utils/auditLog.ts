@@ -150,6 +150,8 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   upload_document: ["matter_id", "folder_id", "content_type"],
   upload_document_version: ["document_id"],
   list_document_versions: ["document_id", "limit", "page_token"],
+  download_document: ["document_id", "document_version_id", "max_bytes"],
+  download_document_template: ["template_id", "max_bytes"],
   update_document: ["document_id", "matter_id", "folder_id"],
   // folders (never the folder name or the search query, which are usually client names)
   list_folders: ["matter_id", "parent_id", "scope", "limit", "page_token"],

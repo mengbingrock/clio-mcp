@@ -143,6 +143,31 @@ export async function clioReportDownloadUrl(reportId: number): Promise<string> {
   return url.toString();
 }
 
+/** Authenticated, region-aware binary redirect. Never forwards OAuth to storage. */
+export async function clioFileDownloadUrl(kind: "document_templates" | "documents", id: number, versionId?: number): Promise<string> {
+  if (!["document_templates", "documents"].includes(kind) || !Number.isSafeInteger(id) || id <= 0 ||
+      (versionId !== undefined && (kind !== "documents" || !Number.isSafeInteger(versionId) || versionId <= 0)))
+    throw new Error("Invalid download identity");
+  const token = await resolveAccessToken();
+  const url = new URL(`${getBase()}/${kind}/${id}/download.json`);
+  if (versionId !== undefined) url.searchParams.set("document_version_id", String(versionId));
+  let res: Response;
+  try {
+    res = await clioFetch(url.toString(), { headers: { Authorization: `Bearer ${token}` }, redirect: "manual", signal: AbortSignal.timeout(30_000) });
+  } catch (error) {
+    if (error instanceof ClioApiError) throw new Error(`Clio download request failed (HTTP ${error.statusCode}); check account access and OAuth grants.`);
+    throw new Error("Clio download request failed; check connection.");
+  }
+  if (res.status !== 303) throw new Error("Expected a Clio download redirect");
+  let target: URL;
+  try { target = new URL(res.headers.get("location") ?? ""); } catch { throw new Error("Missing or invalid download redirect"); }
+  // Clio's current binary storage is S3. Fail closed on new providers until reviewed.
+  if (target.protocol !== "https:" || target.username || target.password || target.port ||
+      !/^[a-z0-9][a-z0-9.-]*\.amazonaws\.com(?:\.cn)?$/i.test(target.hostname))
+    throw new Error("Unrecognized download storage host");
+  return target.toString();
+}
+
 const DEFAULT_MAX_PAGES = 100;
 
 /**
