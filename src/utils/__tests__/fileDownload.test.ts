@@ -25,7 +25,7 @@ describe("binary redirects", () => {
   it("does not expose API body", async () => {
     (fetch as any).mockResolvedValue(new Response("secret body", { status: 403 })); await expect(clioFileDownloadUrl("documents", 1)).rejects.toThrow(/HTTP 403/);
   });
-  it.each([["documents", 0], ["documents", 1, -1], ["document_templates", 1, 2], ["evil", 1]])("rejects invalid identity", async (kind, id, version) => {
+  it.each([["documents", 0], ["documents", 1, -1], ["document_templates", 1, 2], ["evil", 1]])("rejects invalid identity", async (kind, id, version?: number) => {
     await expect(clioFileDownloadUrl(kind as any, id as number, version as number)).rejects.toThrow(/identity/); expect(fetch).not.toHaveBeenCalled();
   });
 });
