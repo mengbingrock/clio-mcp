@@ -137,7 +137,7 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   search_contacts: ["limit", "page_token"],
   get_contact: ["contact_id"],
   // documents (never the query, the file path or the file name)
-  list_documents: ["matter_id", "parent_id", "scope", "limit", "page_token"],
+  list_documents: ["matter_id", "parent_id", "scope", "created_since", "updated_since", "limit", "page_token"],
   list_document_templates: ["limit"],
   get_document_template: ["template_id"],
   create_document_template: ["document_category_id"],
@@ -172,7 +172,7 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   update_calendar_entry: ["calendar_entry_id", "start_at", "end_at", "calendar_owner_id", "all_day", "matter_id", "send_email_notification", "attendee_ids"],
   delete_calendar_entry: ["calendar_entry_id"],
   // time entries and activities (never the note or reference text)
-  list_time_entries: ["matter_id", "task_id", "start_date", "end_date", "limit", "page_token"],
+  list_time_entries: ["matter_id", "task_id", "user_id", "calendar_entry_id", "communication_id", "matter_note_id", "contact_note_id", "created_since", "updated_since", "start_date", "end_date", "limit", "page_token"],
   log_time_entry: ["matter_id", "task_id", "date", "quantity_in_hours", "price", "non_billable", "no_charge", "activity_description_id", "user_id"],
   create_activity: ["type", "date", "matter_id", "task_id", "quantity_in_hours", "price", "non_billable", "no_charge", "activity_description_id", "user_id", "tax_setting"],
   // billing
@@ -184,6 +184,7 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   // notes (never subject or body)
   create_note: ["matter_id"],
   list_notes: ["matter_id", "contact_id", "created_since", "updated_since", "limit", "page_token"],
+  list_communications: ["matter_id", "user_id", "received_since", "received_before", "created_since", "updated_since", "limit", "page_token"],
   // users (never the name filter)
   list_users: ["subscription_type", "enabled", "limit"],
   get_user: ["user_id"],

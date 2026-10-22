@@ -130,6 +130,9 @@ describe("list_notes", () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.notes[0]).toEqual({
         id: 7,
+        type: "Matter",
+        time_entries_count: null,
+        time_entries: null,
         subject: "Client call",
         // The note's own date, which is when the thing happened. created_at is
         // when someone typed it up, and gap detection needs the former.
@@ -178,7 +181,10 @@ describe("list_notes", () => {
     it("returns 'No notes found.' when the API response is empty", async () => {
       mockClioGet.mockResolvedValue({ data: [], meta: { records: 0 } });
       const result = await handlers["list_notes"]({ matter_id: 42, limit: 25 }) as any;
-      expect(result.content[0].text).toBe("No notes found.");
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.notes).toEqual([]);
+      expect(parsed.provenance.all_pages_complete).toBe(true);
+      expect(parsed.provenance.source_endpoint).toBe("/notes.json");
     });
   });
 

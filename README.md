@@ -99,7 +99,7 @@ If you installed this connector via the Clio App Directory's one-click install i
 
 Full data-flow documentation for security reviewers, including a sequence diagram and what the broker persists versus never persists, is in the token broker's repository: [`docs/DATA_FLOW.md`](https://github.com/oktopeak/clio-mcp-backend/blob/main/docs/DATA_FLOW.md).
 
-Everything else — local AES-256-GCM token encryption, the audit log, and the 58 tools — is identical to the BYOC setup. Note that Clio's OAuth doesn't support requesting a narrower scope per login; the permissions your token carries are whatever the connecting Clio application was granted when it was registered in the Clio Developer Portal. For the listed app, that registration is kept to the minimum permission set the 58 tools need — the same principle you'd apply yourself when registering your own app for the BYOC setup. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
+Local AES-256-GCM token encryption and the audit log are identical to the BYOC setup. Tool access depends on the connected application's grants and the signed-in user's permissions. Adding a connector tool does not grant access to its endpoint. Clio's OAuth permissions come from the application's registration in the Clio Developer Portal, not a narrower scope requested per login. See [Option C](#option-c--one-click-via-clio-app-directory) below for the resulting Claude Desktop config.
 
 ---
 
@@ -449,7 +449,7 @@ API: [Clio Manage reference](https://docs.developers.clio.com/clio-manage/api-re
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_documents` | `matter_id`, `parent_id`, `query`, `scope` (`children`/`descendants`), `limit`, `page_token` | Lists or name-searches documents that the authenticated Clio user may access; at least one of `matter_id`, `parent_id`, or `query` is required; a query constrained by `parent_id` searches descendants by default so nested documents in an authorized restricted folder are included; returns a paginated envelope with `total_count`, `has_more`, and `next_page_token` |
+| `list_documents` | `matter_id`, `parent_id`, `query`, `created_since`, `updated_since`, `scope` (`children`/`descendants`), `limit`, `page_token` | Lists authorized documents and creator attribution within a matter, folder, name or changed-since scope; folder name-searches include descendants by default; preserves timestamps and per-page provenance |
 | `get_document` | `document_id` | Returns document metadata, its actual parent folder, and a direct download URL |
 | `upload_document` | `file_path`, `matter_id`, `folder_id`, `name`, `content_type` | Uploads a local file to a matter root (`matter_id`) or directly to a matter/firm-level folder (`folder_id`), including the user's Private documents folder, using Clio's multipart S3 upload flow; reads back the actual parent, and requires at least one target ID |
 | `update_document` | `document_id`, `name`, `matter_id`, `folder_id` | Renames and/or moves a document; a target folder is verified against the target matter before the move, and the actual parent is read back afterward |
@@ -494,7 +494,7 @@ Clio Manage template management and document generation are available through `l
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `list_time_entries` | `matter_id`, `task_id`, `start_date`, `end_date`, `limit`, `page_token` | Lists billable time entries with optional matter/task filters and returns each task association |
+| `list_time_entries` | `user_id`, `matter_id`, `task_id`, `start_date`, `end_date`, supported note/communication/calendar association filters, `created_since`, `updated_since`, `limit`, `page_token` | Lists all recorded time classifications, quantities/redaction, timestamps and source associations; use an employee/work-date query without narrower filters to check zero entries |
 | `log_time_entry` | `matter_id`, `task_id`, `date`, `quantity_in_hours`, `note`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id` | Creates a time entry on a matter, optionally links it to a task, then reads the task back to verify it appears in Recorded Time |
 | `create_activity` | `type`, `date`, `matter_id`, `task_id`, `note`, `quantity_in_hours`, `price`, `non_billable`, `no_charge`, `activity_description_id`, `user_id`, `reference`, `tax_setting` | Creates any Clio activity type; `task_id` is supported for TimeEntry and triggers the same Recorded Time verification |
 
@@ -521,6 +521,16 @@ See [report usage and limitations](docs/reports.md).
 |---|---|---|
 | `create_note` | `matter_id`, `subject`, `body` | Creates a note on a matter; appears in Clio's matter timeline |
 | `list_notes` | `matter_id` **or** `contact_id`, `created_since`, `updated_since`, `limit`, `page_token` | Lists notes with subject, author, the note's own date, and the body as plain text (rich-text markup is kept on `detail_html`) |
+
+### Communications (1 tool)
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `list_communications` | `matter_id`, `user_id`, `received_since`, `received_before`, `created_since`, `updated_since`, `limit`, `page_token` | Reads communication senders, associated record user, dates, matter and linked-time IDs. A sender is not necessarily the record creator. |
+
+Billing review reads preserve raw billing classifications, creators, version history, supported source associations and per-page provenance. `list_time_entries` supports `user_id` and linked note/communication/calendar filters. Document reads accept `created_since` and `updated_since`, but do not invent a creator filter. Group returned documents by verified creator IDs. Version creator information comes from `list_document_versions`; a nested creator expansion inside the document's latest version is not supported by the live field parser.
+
+Follow every cursor, including a next cursor on a short or empty page. Per-page `provenance.all_pages_complete` is true only for a single-page query; callers must assemble and verify multi-page traversal. A redacted or missing value stays unknown. API activity is a partial source, not a complete Firm Feed replacement. Missing an optional source must not block unrelated supported checks. No review tool sends employee email or changes billing records.
 
 ### Reporting (1 tool)
 
@@ -732,7 +742,7 @@ We're a 7-person in-house product team building AI solutions for regulated indus
 
 ## Using the connector as a library
 
-Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 58 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
+Everything the two transports use is exported from `@oktopeak/clio-mcp/lib`, so a service can run the same 59 tools inside its own server: its own login, its own token store, its own audit store. The public npm package and the local install are unchanged; this is the seam a hosting service builds on.
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

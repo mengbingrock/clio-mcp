@@ -3,9 +3,10 @@ import z from "zod";
 import { clioGet, clioPost, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 import { stripHtml } from "../utils/text.js";
+import { readProvenance } from "../utils/readProvenance.js";
 
 const NOTE_LIST_FIELDS =
-  "id,subject,detail,detail_text_type,date,type,matter{id,display_number},contact{id,name},author{id,name},created_at,updated_at";
+  "id,subject,detail,detail_text_type,date,type,matter{id,display_number},contact{id,name},author{id,name},created_at,updated_at,time_entries_count,time_entries{id,date,quantity_in_hours,quantity_redacted,non_billable,no_charge,contingency_fee}";
 
 export function registerNoteTools(server: McpServer): void {
   server.registerTool(
@@ -104,8 +105,9 @@ export function registerNoteTools(server: McpServer): void {
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/notes.json", params);
-        const notes = (data.data ?? []) as any[];
-        const nextPageToken = notes.length >= limit ? extractNextPageToken(data.meta) : null;
+        const provenance = readProvenance("/notes.json", params, data);
+        const notes = data.data as any[];
+        const nextPageToken = provenance.next_page_token;
 
         await appendAuditLog({
           tool: "list_notes",
@@ -115,13 +117,12 @@ export function registerNoteTools(server: McpServer): void {
           ...(matter_id && { matter_id }),
         });
 
-        if (notes.length === 0) {
-          return { content: [{ type: "text", text: "No notes found." }] };
-        }
-
         const result = {
           notes: notes.map((n) => ({
             id: n.id,
+            type: n.type ?? null,
+            time_entries_count: n.time_entries_count ?? null,
+            time_entries: n.time_entries ?? null,
             subject: n.subject,
             // `date` is the note's own date, set by whoever wrote it. `created_at`
             // is when the record was entered. For "when did this last move?"
@@ -138,6 +139,7 @@ export function registerNoteTools(server: McpServer): void {
           total_count: data.meta?.records ?? notes.length,
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,
+          provenance,
         };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
