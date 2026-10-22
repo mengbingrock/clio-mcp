@@ -2,11 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
 import { clioDelete, clioGet, clioPatch, clioPost, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
+import { readProvenance } from "../utils/readProvenance.js";
 
 const CALENDAR_LIST_FIELDS =
-  "id,summary,description,location,start_at,end_at,all_day,calendar_owner_id,start_at_time_zone,matter{id,display_number},calendar_owner{id,name,type,color},attendees{id,type,name}";
+  "id,summary,description,location,start_at,start_date,end_at,end_date,all_day,calendar_owner_id,start_at_time_zone,created_at,updated_at,time_entries_count,time_entries{id,date,quantity_in_hours,quantity_redacted,non_billable,no_charge,contingency_fee},matter{id,display_number},calendar_owner{id,name,type,color},attendees{id,type,name}";
 const CALENDAR_DETAIL_FIELDS =
-  "id,etag,summary,description,location,start_at,start_date,start_time,end_at,end_date,end_time,all_day,recurrence_rule,parent_calendar_entry_id,court_rule,created_at,updated_at,permission,calendar_owner_id,start_at_time_zone,time_entries_count,conference_meeting{id,type,join_url},matter{id,display_number},calendar_owner{id,name,type,color},calendar_entry_event_type{id,name,color},attendees{id,type,name,email,enabled},calendars{id,name,type,color},reminders{id,duration,next_delivery_at,state,notification_method}";
+  "id,etag,summary,description,location,start_at,start_date,start_time,end_at,end_date,end_time,all_day,recurrence_rule,parent_calendar_entry_id,court_rule,created_at,updated_at,permission,calendar_owner_id,start_at_time_zone,time_entries_count,time_entries{id,date,quantity_in_hours,quantity_redacted,non_billable,no_charge,contingency_fee},conference_meeting{id,type,join_url},matter{id,display_number},calendar_owner{id,name,type,color},calendar_entry_event_type{id,name,color},attendees{id,type,name,email,enabled},calendars{id,name,type,color},reminders{id,duration,next_delivery_at,state,notification_method}";
 
 const calendarDateTimeSchema = z.string().datetime({ offset: true }).describe(
   "ISO-8601 timestamp with an explicit time-zone offset or Z, e.g. 2026-09-05T17:00:00-07:00"
@@ -34,7 +35,7 @@ function mapCalendarEntry(entry: any): Record<string, unknown> {
     end_date: entry.end_date ?? null,
     end_time: entry.end_time ?? null,
     start_at_time_zone: entry.start_at_time_zone ?? null,
-    all_day: entry.all_day ?? false,
+    all_day: entry.all_day ?? null,
     recurrence_rule: entry.recurrence_rule ?? null,
     parent_calendar_entry_id: entry.parent_calendar_entry_id ?? null,
     court_rule: entry.court_rule ?? false,
@@ -70,7 +71,8 @@ function mapCalendarEntry(entry: any): Record<string, unknown> {
     conference_meeting: entry.conference_meeting
       ? { id: entry.conference_meeting.id, type: entry.conference_meeting.type, join_url: entry.conference_meeting.join_url }
       : null,
-    time_entries_count: entry.time_entries_count ?? 0,
+    time_entries_count: entry.time_entries_count ?? null,
+    time_entries: entry.time_entries ?? null,
     created_at: entry.created_at ?? null,
     updated_at: entry.updated_at ?? null,
   };
@@ -103,8 +105,9 @@ export function registerCalendarTools(server: McpServer): void {
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/calendar_entries.json", params);
+        const provenance = readProvenance("/calendar_entries.json", params, data);
         const entries = data.data as any[];
-        const nextPageToken = entries.length >= limit ? extractNextPageToken(data.meta) : null;
+        const nextPageToken = provenance.next_page_token;
 
         await appendAuditLog({
           tool: "list_calendar_entries",
@@ -119,6 +122,7 @@ export function registerCalendarTools(server: McpServer): void {
           total_count: data.meta?.records ?? entries.length,
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,
+          provenance,
         };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -159,13 +163,15 @@ export function registerCalendarTools(server: McpServer): void {
     {
       description: "List calendars available in Clio — use the returned id as calendar_owner_id when creating entries",
       inputSchema: {
+        writeable: z.boolean().optional().describe("Set true only when looking for a calendar to write to; omit for readable calendars used in review"),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
         page_token: z.string().optional().describe("Cursor from a previous list_calendars response to fetch the next page"),
       },
     },
-    async ({ limit, page_token }) => {
+    async ({ writeable, limit, page_token }) => {
       try {
-        const params: Record<string, string> = { writeable: "true", fields: "id,name,type,color,permission,visible", limit: String(limit) };
+        const params: Record<string, string> = { fields: "id,name,type,color,permission,visible", limit: String(limit) };
+        if (writeable !== undefined) params.writeable = String(writeable);
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/calendars.json", params);

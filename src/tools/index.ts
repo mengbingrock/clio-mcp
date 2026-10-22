@@ -31,6 +31,7 @@ import { registerActivityTools } from "./activities.js";
 import { registerBillingTools } from "./billing.js";
 import { registerReportTools } from "./reports.js";
 import { registerNoteTools } from "./notes.js";
+import { registerCommunicationTools } from "./communications.js";
 import { registerUserTools } from "./users.js";
 import { registerAuditExportTool } from "./auditExport.js";
 
@@ -146,6 +147,7 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
   // notes
   create_note: { title: "Create note", readOnly: false },
   list_notes: { title: "List notes", readOnly: true },
+  list_communications: { title: "List communications", readOnly: true },
   // users
   list_users: { title: "List users", readOnly: true },
   get_user: { title: "Get user", readOnly: true },
@@ -155,6 +157,7 @@ export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
 
 /** Registration order is stable so tool lists are deterministic across transports. */
 export const REGISTRARS: ReadonlyArray<(server: McpServer) => void> = [
+  registerCommunicationTools,
   registerMatterTools,
   registerContactTools,
   registerDocumentTools,

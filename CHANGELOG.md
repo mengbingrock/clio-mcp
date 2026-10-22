@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- Read-only `list_communications` for sender and record-user attribution,
+  communication dates, matters, and supported linked-time IDs.
+- Creator attribution on documents and document versions; employee, work-date,
+  change-date and supported source-association filters for time-entry review.
+- Per-page retrieval provenance on activity-review lists, including exact filters,
+  cursors and page-completion status. Callers must still follow and verify every page.
+
+### Changed
+- Preserve raw time quantities, redaction and billability flags, plus task/note
+  attribution, timestamps, calendar context and supported time associations.
+- Calendar discovery can read accessible calendars without requiring write access;
+  callers can still explicitly request writable calendars.
+- Empty document/note lists now return structured empty arrays and paging metadata.
+  Short or empty pages retain any next cursor instead of appearing complete.
+
+These are partial activity sources, not a complete Firm Feed API. This update does
+not change OAuth grants, add billing writes, send employee messages, or publish a
+new package release.
+
 ## [2.5.0] - 2026-10-03
 
 This release expands firm-level document workflows, adds document-template
