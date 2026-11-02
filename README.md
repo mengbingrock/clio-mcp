@@ -73,7 +73,7 @@ ABA Opinion 512 (2023) requires attorneys using AI tools to understand how those
 
 - **No data retention by the connector.** The connector does not store matter data, client names, or any Clio content. It fetches from the API and passes results to Claude. The only thing persisted locally is your authentication token, and that is encrypted (see below).
 
-- **Twenty-one write tools, all logged, all optional.** The connector can create matters, custom fields, notes, tasks, folders, calendar entries, time entries and activities; update matters, tasks, documents and calendar entries; complete tasks; upload documents; and delete calendar entries. It never touches contacts or billing records. Every write is recorded in the audit log, and `READ_ONLY=true` removes all twenty-one write tools from the server entirely (see [Read-only mode](#read-only-mode)), so a firm can start with read access and turn writes on when it has decided to.
+- **Twenty-four write tools, all logged, all optional.** The connector can create matters, custom fields, notes, tasks, folders, calendar entries, time entries and activities; update matters, tasks, documents and calendar entries; complete tasks; upload documents; and delete calendar entries. It never touches contacts or billing records. Every write is recorded in the audit log, and `READ_ONLY=true` removes all twenty-four write tools from the server entirely (see [Read-only mode](#read-only-mode)), so a firm can start with read access and turn writes on when it has decided to.
 
 ### Token security: encryption at rest
 
@@ -490,6 +490,17 @@ Clio Manage template management and document generation are available through `l
 | `update_calendar_entry` | `calendar_entry_id`, `summary`, `start_at`, `end_at`, `calendar_owner_id`, `description`, `all_day`, `matter_id`, `location`, `send_email_notification`, `attendee_ids` | Updates or reschedules an entry; timestamps require an explicit offset or `Z` and are normalized to UTC |
 | `delete_calendar_entry` | `calendar_entry_id` | Permanently deletes one calendar entry |
 
+### Reminders and delivery methods (6 tools)
+
+- `list_notification_methods`: inspect an enabled user and their existing Email/Popup recipients
+- `list_reminders`: paginate subject-specific reminders and delivery state
+- `get_reminder`: inspect offset, method, subject, ETag and `next_delivery_at`
+- `create_reminder`: verify subject and recipient; elapsed offsets only
+- `update_reminder`: conditional ETag update; reconcile asynchronous delivery schedules
+- `delete_reminder`: remove one explicitly authorized reminder
+
+Calendar updates reject recurring/court-rule chains and use `If-Match` to prevent overwriting a concurrent edit. Reminder `scheduled` state does not establish delivery. Calculate business-day preparation dates outside the connector and verify the resulting delivery timestamps.
+
 ### Time entries (3 tools)
 
 | Tool | Inputs | What it does |
@@ -574,11 +585,11 @@ All settings are passed as environment variables (in your Claude Desktop config 
 | `CLIO_API_BASE` | No | `<region host>/api/v4` | Advanced override for the API base URL. Takes precedence over `CLIO_REGION` |
 | `CLIO_AUTH_URL` | No | `<region host>/oauth/authorize` | Advanced override for the OAuth authorization endpoint |
 | `CLIO_TOKEN_URL` | No | `<region host>/oauth/token` | Advanced override for the OAuth token endpoint |
-| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the twenty-one write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
+| `READ_ONLY` | No | `false` | `true`, `1` or `yes` leaves the twenty-four write tools unregistered so Claude can read Clio but never change it. Works on both transports. See [Read-only mode](#read-only-mode) |
 
 ### Read-only mode
 
-Set `READ_ONLY=true` and the connector never registers its twenty-one write tools (`create_report`, `create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `upload_document_version`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
+Set `READ_ONLY=true` and the connector never registers its twenty-four write tools (`create_report`, `create_matter`, `update_matter`, `create_custom_field`, `create_note`, `create_task`, `update_task`, `complete_task`, `create_calendar_entry`, `update_calendar_entry`, `delete_calendar_entry`, `log_time_entry`, `create_activity`, `upload_document`, `upload_document_version`, `update_document`, `create_folder`, `create_document_template`, `update_document_template`, `delete_document_template`, `create_document_automation`, `create_reminder`, `update_reminder`, `delete_reminder`). They do not appear in Claude's tool list and a call to any of them is rejected by the server, so this is a server-side guarantee rather than a client-side prompt. The read tools, the auth tools and the audit export keep working. Without it, the only thing standing between Claude and a write is the approval prompt your MCP client shows, which belongs to the client, not to this connector.
 
 For Claude Desktop, add it next to the other variables:
 

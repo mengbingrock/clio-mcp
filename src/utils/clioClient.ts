@@ -213,7 +213,7 @@ export async function clioPost(path: string, body: unknown, params?: Record<stri
   return res.json();
 }
 
-export async function clioPatch(path: string, body: unknown, params?: Record<string, string>): Promise<any> {
+export async function clioPatch(path: string, body: unknown, params?: Record<string, string>, options?: { ifMatch?: string }): Promise<any> {
   const token = await resolveAccessToken();
   const url = new URL(`${getBase()}${path}`);
   if (params) {
@@ -221,7 +221,7 @@ export async function clioPatch(path: string, body: unknown, params?: Record<str
   }
   const res = await clioFetch(url.toString(), {
     method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(options?.ifMatch ? { "If-Match": options.ifMatch } : {}) },
     body: JSON.stringify(body),
   });
   const text = await res.text();

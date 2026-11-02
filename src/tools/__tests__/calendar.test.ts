@@ -288,12 +288,23 @@ describe("update_calendar_entry", () => {
       },
     },
       expect.objectContaining({ fields: expect.stringContaining("start_at_time_zone") }),
+      { ifMatch: "entry-etag" },
     );
   });
 
   it("rejects an update with no changed fields", async () => {
     const result = await handlers["update_calendar_entry"]({ calendar_entry_id: 1 }) as any;
     expect(result.isError).toBe(true);
+    expect(mockClioPatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a caller's stale version and refuses recurring/court-rule edits", async () => {
+    mockClioGet.mockResolvedValue({ data: FAKE_ENTRY });
+    expect((await handlers.update_calendar_entry({ calendar_entry_id: 1, summary: "new", expected_etag: "stale" })).isError).toBe(true);
+    for (const flag of [{ recurrence_rule: "FREQ=WEEKLY" }, { parent_calendar_entry_id: 7 }, { court_rule: true }]) {
+      mockClioGet.mockResolvedValue({ data: { ...FAKE_ENTRY, ...flag } });
+      expect((await handlers.update_calendar_entry({ calendar_entry_id: 1, summary: "new" })).isError).toBe(true);
+    }
     expect(mockClioPatch).not.toHaveBeenCalled();
   });
 });

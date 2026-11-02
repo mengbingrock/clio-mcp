@@ -187,6 +187,12 @@ export const AUDIT_ARG_ALLOWLIST: RedactPolicy = {
   // users (never the name filter)
   list_users: ["subscription_type", "enabled", "limit"],
   get_user: ["user_id"],
+  list_notification_methods: ["user_id"],
+  list_reminders: ["subject_id", "subject_type", "user_id", "notification_method_id", "state", "limit", "page_token"],
+  get_reminder: ["reminder_id"],
+  create_reminder: ["subject_id", "subject_type", "user_id", "notification_method_id", "duration_unit", "duration_value"],
+  update_reminder: ["reminder_id", "user_id", "notification_method_id", "duration_unit", "duration_value"],
+  delete_reminder: ["reminder_id"],
   // audit
   export_audit_log: ["date_from", "date_to", "matter_id", "limit", "offset"],
 };
