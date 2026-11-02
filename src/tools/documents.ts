@@ -6,14 +6,15 @@ import crypto from "crypto";
 import { clioGet, clioPost, clioPut, clioPatch, getClioBaseUrl, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
 import { registerDocumentVersionTools } from "./documentVersions.js";
+import { readProvenance } from "../utils/readProvenance.js";
 
 const DOCUMENT_PARENT_FIELDS = "parent{id,type,name},matter{id,display_number}";
 
 const DOCUMENT_LIST_FIELDS =
-  `id,name,content_type,size,created_at,${DOCUMENT_PARENT_FIELDS}`;
+  `id,name,content_type,size,created_at,updated_at,creator{id,type,name},${DOCUMENT_PARENT_FIELDS}`;
 
 const DOCUMENT_DETAIL_FIELDS =
-  `id,name,content_type,size,created_at,${DOCUMENT_PARENT_FIELDS},latest_document_version{id,uuid,created_at,size}`;
+  `id,name,content_type,size,created_at,updated_at,creator{id,type,name},${DOCUMENT_PARENT_FIELDS},latest_document_version{id,uuid,created_at,updated_at,size}`;
 
 const FOLDER_VERIFY_FIELDS = "id,name,parent{id,type},matter{id,display_number}";
 
@@ -153,6 +154,8 @@ export function registerDocumentTools(server: McpServer): void {
         matter_id: z.number().int().positive().optional().describe("Filter documents by matter ID"),
         parent_id: z.number().int().positive().optional().describe("Filter documents by parent ID (folder)"),
         query: z.string().optional().describe("Wildcard search string for document names (not document contents)"),
+        created_since: z.string().datetime({ offset: true }).optional().describe("Documents created since this timestamp; group returned records by verified creator ID, not an unsupported creator filter"),
+        updated_since: z.string().datetime({ offset: true }).optional().describe("Documents changed since this timestamp; updated_at does not identify who changed them"),
         scope: z.enum(["children", "descendants"]).optional().describe(
           "When parent_id is provided, search only immediate children or all descendants. Defaults to descendants when query is present, otherwise children."
         ),
@@ -160,10 +163,10 @@ export function registerDocumentTools(server: McpServer): void {
         page_token: z.string().optional().describe("Cursor from a previous list_documents response to fetch the next page"),
       },
     },
-    async ({ matter_id, parent_id, query, scope, limit, page_token }) => {
-      if (!matter_id && !parent_id && !query) {
+    async ({ matter_id, parent_id, query, created_since, updated_since, scope, limit, page_token }) => {
+      if (!matter_id && !parent_id && !query && !created_since && !updated_since) {
         return {
-          content: [{ type: "text", text: "Error: provide at least one of matter_id, parent_id, or query" }],
+          content: [{ type: "text", text: "Error: provide matter_id, parent_id, query, created_since, or updated_since" }],
           isError: true,
         };
       }
@@ -180,12 +183,15 @@ export function registerDocumentTools(server: McpServer): void {
         if (matter_id) params["matter_id"] = String(matter_id);
         if (parent_id) params["parent_id"] = String(parent_id);
         if (query) params["query"] = query;
+        if (created_since) params.created_since = created_since;
+        if (updated_since) params.updated_since = updated_since;
         if (effectiveScope) params["scope"] = effectiveScope;
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/documents.json", params);
+        const provenance = readProvenance("/documents.json", params, data);
         const docs = data.data as any[];
-        const nextPageToken = docs.length >= limit ? extractNextPageToken(data.meta) : null;
+        const nextPageToken = provenance.next_page_token;
 
         await appendAuditLog({
           tool: "list_documents",
@@ -195,10 +201,6 @@ export function registerDocumentTools(server: McpServer): void {
           ...(matter_id && { matter_id }),
         });
 
-        if (!docs || docs.length === 0) {
-          return { content: [{ type: "text", text: "No documents found." }] };
-        }
-
         const result = {
           documents: docs.map((d) => ({
             id: d.id,
@@ -206,12 +208,15 @@ export function registerDocumentTools(server: McpServer): void {
             content_type: d.content_type,
             size: d.size,
             created_at: d.created_at,
+            updated_at: d.updated_at ?? null,
+            creator: d.creator ?? null,
             matter: d.matter ? { id: d.matter.id, display_number: d.matter.display_number } : null,
             ...mapDocumentParent(d),
           })),
           total_count: data.meta?.records ?? docs.length,
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,
+          provenance,
         };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -253,6 +258,11 @@ export function registerDocumentTools(server: McpServer): void {
           content_type: doc.content_type,
           size: doc.size,
           created_at: doc.created_at,
+          updated_at: doc.updated_at ?? null,
+          creator: doc.creator ?? null,
+          latest_document_version: doc.latest_document_version ?? null,
+          retrieved_at: new Date().toISOString(),
+          source_endpoint: `/documents/${document_id}.json`,
           matter: doc.matter ? { id: doc.matter.id, display_number: doc.matter.display_number } : null,
           ...mapDocumentParent(doc),
           latest_version_uuid: versionUuid,

@@ -53,7 +53,7 @@ describe("document downloads", () => {
     expect(parse(await handlers.download_document({ document_id: 42, document_version_id: 101, output_path: local().output_path }))).toMatchObject({ document_version_id: 101, version_uuid: "old" });
     expect(mocks.all).toHaveBeenCalledTimes(2); expect(mocks.url).toHaveBeenCalledWith("documents", 42, 101);
   });
-  it.each([[], [{ ...old, document_id: 99 }], [{ ...old, fully_uploaded: false }]])("rejects absent/foreign/incomplete versions", async versions => {
+  it.each([{ versions: [] }, { versions: [{ ...old, document_id: 99 }] }, { versions: [{ ...old, fully_uploaded: false }] }])("rejects absent/foreign/incomplete versions", async ({ versions }) => {
     mocks.all.mockResolvedValue(versions); expect((await handlers.download_document({ document_id: 42, document_version_id: 101 })).isError).toBe(true); expect(mocks.url).not.toHaveBeenCalled();
   });
   it.each([0, -1, Number.MAX_SAFE_INTEGER + 1])("rejects unsafe IDs %s", async value => {

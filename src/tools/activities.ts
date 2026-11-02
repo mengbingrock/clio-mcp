@@ -2,8 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
 import { clioGet, clioPost, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
+import { readProvenance } from "../utils/readProvenance.js";
 
 const ACTIVITY_FIELDS = "id,type,date,quantity_in_hours,quantity_redacted,price,total,note,non_billable,no_charge,matter{id,display_number},task{id},user{id,name}";
+const REVIEW_FIELDS = `${ACTIVITY_FIELDS},created_at,updated_at,contingency_fee,document_version{id,document_id},matter_note{id},contact_note{id},communication{id},calendar_entry{id}`;
 const TASK_RECORDED_TIME_FIELDS =
   "id,time_entries_count,time_entries{id,date,quantity_in_hours,quantity_redacted,price,total,note,non_billable,no_charge}";
 
@@ -50,32 +52,43 @@ export function registerActivityTools(server: McpServer): void {
   server.registerTool(
     "list_time_entries",
     {
-      description: "List time entries (billable hours) from Clio",
+      description: "List recorded time from Clio, including billable, non-billable and contingency entries. Preserves classifications and source associations; zero rate is not a billability decision.",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter by matter ID"),
         task_id: z.number().int().positive().optional().describe("Filter by the associated task ID"),
+        user_id: z.number().int().positive().optional().describe("Filter by the employee who owns the recorded time, not the actor who entered it"),
+        calendar_entry_id: z.number().int().positive().optional(),
+        communication_id: z.number().int().positive().optional(),
+        matter_note_id: z.number().int().positive().optional(),
+        contact_note_id: z.number().int().positive().optional(),
+        created_since: z.string().datetime({ offset: true }).optional(),
+        updated_since: z.string().datetime({ offset: true }).optional(),
         start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — entries on or after this date"),
         end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — entries on or before this date"),
         limit: z.number().int().min(1).max(200).default(25).describe("Max results to return (1-200)"),
         page_token: z.string().optional().describe("Cursor from a previous list_time_entries response to fetch the next page"),
       },
     },
-    async ({ matter_id, task_id, start_date, end_date, limit, page_token }) => {
+    async ({ matter_id, task_id, user_id, calendar_entry_id, communication_id, matter_note_id, contact_note_id, created_since, updated_since, start_date, end_date, limit, page_token }) => {
       try {
         const params: Record<string, string> = {
-          fields: ACTIVITY_FIELDS,
+          fields: REVIEW_FIELDS,
           limit: String(limit),
           type: "TimeEntry",
         };
         if (matter_id) params["matter_id"] = String(matter_id);
         if (task_id) params["task_id"] = String(task_id);
+        for (const [key, value] of Object.entries({ user_id, calendar_entry_id, communication_id, matter_note_id, contact_note_id, created_since, updated_since })) {
+          if (value !== undefined) params[key] = String(value);
+        }
         if (start_date) params["start_date"] = start_date;
         if (end_date) params["end_date"] = end_date;
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/activities.json", params);
+        const provenance = readProvenance("/activities.json", params, data);
         const entries = data.data as any[];
-        const nextPageToken = entries.length >= limit ? extractNextPageToken(data.meta) : null;
+        const nextPageToken = provenance.next_page_token;
 
         await appendAuditLog({
           tool: "list_time_entries",
@@ -88,18 +101,33 @@ export function registerActivityTools(server: McpServer): void {
         const result = {
           time_entries: entries.map((e) => ({
             id: e.id,
+            type: e.type ?? "TimeEntry",
             date: e.date,
-            quantity_in_hours: e.quantity_in_hours,
+            created_at: e.created_at ?? null,
+            updated_at: e.updated_at ?? null,
+            quantity_in_hours: e.quantity_in_hours ?? null,
+            quantity_redacted: e.quantity_redacted ?? null,
+            non_billable: e.non_billable ?? null,
+            no_charge: e.no_charge ?? null,
+            contingency_fee: e.contingency_fee ?? null,
+            price: e.price ?? null,
             rate: e.price ?? null,
             total: e.total,
             description: e.note ?? null,
+            note: e.note ?? null,
             matter: e.matter ? { id: e.matter.id, display_number: e.matter.display_number } : null,
             task: e.task ? { id: e.task.id } : null,
             user: e.user ? { id: e.user.id, name: e.user.name } : null,
+            document_version: e.document_version ?? null,
+            matter_note: e.matter_note ?? null,
+            contact_note: e.contact_note ?? null,
+            communication: e.communication ?? null,
+            calendar_entry: e.calendar_entry ?? null,
           })),
           total_count: data.meta?.records ?? entries.length,
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,
+          provenance,
         };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

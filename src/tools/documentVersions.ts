@@ -4,8 +4,10 @@ import fs from "fs/promises";
 import crypto from "crypto";
 import { clioGet, clioPost, clioPatch, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
+import { readProvenance } from "../utils/readProvenance.js";
 
 const VERSION_FIELDS = "id,document_id,uuid,version_number,size,filename,content_type,fully_uploaded,created_at";
+const VERSION_REVIEW_FIELDS = `${VERSION_FIELDS},updated_at,creator{id,type,name}`;
 const DOCUMENT_FIELDS = `id,name,content_type,parent{id,type},matter{id},latest_document_version{${VERSION_FIELDS}}`;
 const MAX_BYTES = 50 * 1024 * 1024;
 const PART_BYTES = 10 * 1024 * 1024;
@@ -22,13 +24,13 @@ export function registerDocumentVersionTools(server: McpServer): void {
     },
   }, async ({ document_id, limit, page_token }) => {
     try {
-      const response = await clioGet(`/documents/${document_id}/versions.json`, {
-        fields: VERSION_FIELDS, limit: String(limit), ...(page_token ? { page_token } : {}),
-      });
-      if (!Array.isArray(response.data)) throw new Error("Invalid history response");
-      const next = extractNextPageToken(response.meta);
+      const endpoint = `/documents/${document_id}/versions.json`;
+      const params = { fields: VERSION_REVIEW_FIELDS, limit: String(limit), ...(page_token ? { page_token } : {}) };
+      const response = await clioGet(endpoint, params);
+      const provenance = readProvenance(endpoint, params, response);
+      const next = provenance.next_page_token;
       await appendAuditLog({ tool: "list_document_versions", args: { document_id, limit }, outcome: "success", result_count: response.data.length });
-      return result({ document_id, versions: response.data, has_more: next !== null, next_page_token: next });
+      return result({ document_id, versions: response.data, has_more: next !== null, next_page_token: next, provenance });
     } catch {
       await appendAuditLog({ tool: "list_document_versions", args: { document_id }, outcome: "error" });
       return result({ error: "Could not read document version history; check access and connection." }, true);

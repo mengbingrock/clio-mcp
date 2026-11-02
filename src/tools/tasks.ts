@@ -2,9 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import z from "zod";
 import { clioGet, clioPost, clioPatch, ClioApiError, extractNextPageToken } from "../utils/clioClient.js";
 import { appendAuditLog } from "../utils/auditLog.js";
+import { readProvenance } from "../utils/readProvenance.js";
 
 const TASK_LIST_FIELDS =
-  "id,name,priority,due_at,status,permission,time_estimated,notify_completion,task_type{id,name},assignee{id,name},matter{id,display_number},reminders{id,notification_method}";
+  "id,name,priority,due_at,status,permission,time_estimated,notify_completion,created_at,updated_at,completed_at,time_entries_count,assigner{id,name},task_type{id,name},assignee{id,type,name},matter{id,display_number},reminders{id,notification_method}";
 const TASK_DETAIL_FIELDS =
   "id,etag,name,status,description,description_text_type,priority,due_at,permission,completed_at,notify_completion,statute_of_limitations,time_estimated,created_at,updated_at,time_entries_count,time_entries{id,date,quantity_in_hours,quantity_redacted,price,total,note,non_billable,no_charge},task_type{id,name},assigner{id,name},matter{id,display_number},assignee{id,type,name},reminders{id,duration,next_delivery_at,state,created_at,updated_at,notification_method}";
 const TASK_TYPE_FIELDS = "id,etag,name,deleted_at,created_at,updated_at";
@@ -32,6 +33,8 @@ export function registerTaskTools(server: McpServer): void {
       description: "List tasks from Clio with optional filters",
       inputSchema: {
         matter_id: z.number().int().positive().optional().describe("Filter tasks by matter ID"),
+        created_since: z.string().datetime({ offset: true }).optional(),
+        updated_since: z.string().datetime({ offset: true }).optional(),
         task_type_id: z.number().int().positive().optional().describe("Filter tasks by Task Type ID; use list_task_types to discover IDs"),
         status: z.enum(["Pending", "Complete", "In Progress", "In Review", "Draft"]).optional().describe("Filter by task status"),
         due_date_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date (YYYY-MM-DD) — tasks due on or after this date"),
@@ -40,10 +43,12 @@ export function registerTaskTools(server: McpServer): void {
         page_token: z.string().optional().describe("Cursor from a previous list_tasks response to fetch the next page"),
       },
     },
-    async ({ matter_id, task_type_id, status, due_date_start, due_date_end, limit, page_token }) => {
+    async ({ matter_id, created_since, updated_since, task_type_id, status, due_date_start, due_date_end, limit, page_token }) => {
       try {
         const params: Record<string, string> = { fields: TASK_LIST_FIELDS, limit: String(limit) };
         if (matter_id) params["matter_id"] = String(matter_id);
+        if (created_since) params.created_since = created_since;
+        if (updated_since) params.updated_since = updated_since;
         if (task_type_id) params["task_type_id"] = String(task_type_id);
         if (status) params["status"] = STATUS_MAP[status];
         if (due_date_start) params["due_at_from"] = due_date_start;
@@ -51,8 +56,9 @@ export function registerTaskTools(server: McpServer): void {
         if (page_token) params["page_token"] = page_token;
 
         const data = await clioGet("/tasks.json", params);
+        const provenance = readProvenance("/tasks.json", params, data);
         const tasks = data.data as any[];
-        const nextPageToken = tasks.length >= limit ? extractNextPageToken(data.meta) : null;
+        const nextPageToken = provenance.next_page_token;
 
         await appendAuditLog({
           tool: "list_tasks",
@@ -65,6 +71,11 @@ export function registerTaskTools(server: McpServer): void {
         const result = {
           tasks: tasks.map((t) => ({
             id: t.id,
+            created_at: t.created_at ?? null,
+            updated_at: t.updated_at ?? null,
+            completed_at: t.completed_at ?? null,
+            time_entries_count: t.time_entries_count ?? null,
+            assigner: t.assigner ?? null,
             name: t.name,
             priority: t.priority,
             due_at: t.due_at ?? null,
@@ -75,7 +86,7 @@ export function registerTaskTools(server: McpServer): void {
             time_estimated_unit: "minutes",
             notify_completion: t.notify_completion ?? null,
             task_type: t.task_type ? { id: t.task_type.id, name: t.task_type.name } : null,
-            assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
+            assignee: t.assignee ? { id: t.assignee.id, type: t.assignee.type ?? null, name: t.assignee.name } : null,
             matter: t.matter ? { id: t.matter.id, display_number: t.matter.display_number } : null,
             reminder: t.reminders?.length > 0
               ? { notification_method: t.reminders[0].notification_method }
@@ -84,6 +95,7 @@ export function registerTaskTools(server: McpServer): void {
           total_count: data.meta?.records ?? tasks.length,
           has_more: nextPageToken !== null,
           next_page_token: nextPageToken,
+          provenance,
         };
 
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -176,6 +188,8 @@ export function registerTaskTools(server: McpServer): void {
         const task = data.data;
         const result = {
           id: task.id,
+          retrieved_at: new Date().toISOString(),
+          source_endpoint: `/tasks/${task_id}.json`,
           etag: task.etag ?? null,
           name: task.name,
           status: task.status,
