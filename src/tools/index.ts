@@ -27,6 +27,7 @@ import { registerRelationshipTools } from "./relationships.js";
 import { registerActivitySummaryTools } from "./activitySummary.js";
 import { registerTaskTools } from "./tasks.js";
 import { registerCalendarTools } from "./calendar.js";
+import { registerReminderTools } from "./reminders.js";
 import { registerActivityTools } from "./activities.js";
 import { registerBillingTools } from "./billing.js";
 import { registerReportTools } from "./reports.js";
@@ -64,6 +65,9 @@ export const WRITE_TOOLS: ReadonlySet<string> = new Set([
   "create_calendar_entry",
   "update_calendar_entry",
   "delete_calendar_entry",
+  "create_reminder",
+  "update_reminder",
+  "delete_reminder",
   "log_time_entry",
   "create_activity",
   "create_note",
@@ -78,6 +82,12 @@ export const AUTH_TOOLS: ReadonlySet<string> = new Set(["auth_status", "authenti
 const AUTH_FLOW_TOOLS: ReadonlySet<string> = new Set(["authenticate", "logout"]);
 
 export const TOOL_META: Readonly<Record<string, ToolMeta>> = {
+  list_notification_methods: { title: "List notification methods", readOnly: true },
+  list_reminders: { title: "List reminders", readOnly: true },
+  get_reminder: { title: "Get reminder", readOnly: true },
+  create_reminder: { title: "Create reminder", readOnly: false, destructive: false, idempotent: false },
+  update_reminder: { title: "Update reminder", readOnly: false, destructive: false, idempotent: true },
+  delete_reminder: { title: "Delete reminder", readOnly: false, destructive: true, idempotent: true },
   // auth
   auth_status: { title: "Auth status", readOnly: true },
   authenticate: { title: "Authenticate with Clio", readOnly: false, destructive: false, idempotent: true },
@@ -170,6 +180,7 @@ export const REGISTRARS: ReadonlyArray<(server: McpServer) => void> = [
   registerActivitySummaryTools,
   registerTaskTools,
   registerCalendarTools,
+  registerReminderTools,
   registerActivityTools,
   registerBillingTools,
   registerReportTools,

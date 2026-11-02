@@ -64,8 +64,10 @@ describe("document downloads", () => {
     await fs.writeFile(local().output_path, "keep"); expect((await handlers.download_document_template(local())).isError).toBe(true);
     expect(await fs.readFile(local().output_path, "utf8")).toBe("keep");
   });
-  it("rejects symlink destination", async () => {
-    await fs.symlink(path.join(dir, "target"), local().output_path); expect((await handlers.download_document_template(local())).isError).toBe(true); expect(fetch).not.toHaveBeenCalled();
+  it("rejects symlink destination", async (context) => {
+    try { await fs.symlink(path.join(dir, "target"), local().output_path); }
+    catch (error: any) { if (process.platform === "win32" && error.code === "EPERM") { context.skip("Windows symlink privilege unavailable"); return; } throw error; }
+    expect((await handlers.download_document_template(local())).isError).toBe(true); expect(fetch).not.toHaveBeenCalled();
   });
   it("detects template mutation and leaves no output", async () => {
     mocks.get.mockResolvedValueOnce({ data: tpl }).mockResolvedValueOnce({ data: { ...tpl, etag: "changed" } });

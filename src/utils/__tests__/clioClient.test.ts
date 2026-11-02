@@ -15,7 +15,7 @@ vi.mock("../clioRegion.js", () => ({
   getClioApiBaseUrl: vi.fn().mockReturnValue("https://app.clio.com/api/v4"),
 }));
 
-import { clioDelete, clioGet, clioGetAllPages, clioGetWithFieldFallback, ClioApiError } from "../clioClient.js";
+import { clioPatch, clioDelete, clioGet, clioGetAllPages, clioGetWithFieldFallback, ClioApiError } from "../clioClient.js";
 
 function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<string, string> }) {
   return new Response(JSON.stringify(body), {
@@ -23,6 +23,17 @@ function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
 }
+
+describe("conditional updates", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("sends If-Match and does not retry a concurrency conflict", async () => {
+    const transport = vi.fn().mockResolvedValue(jsonResponse({ message: "changed" }, { status: 412 }));
+    vi.stubGlobal("fetch", transport);
+    await expect(clioPatch("/reminders/1.json", { data: { duration_value: 1 } }, undefined, { ifMatch: '"old"' })).rejects.toThrow(ClioApiError);
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport.mock.calls[0][1].headers["If-Match"]).toBe('"old"');
+  });
+});
 
 describe("clioGetAllPages", () => {
   beforeEach(() => {

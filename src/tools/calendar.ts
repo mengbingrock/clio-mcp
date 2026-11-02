@@ -257,6 +257,7 @@ export function registerCalendarTools(server: McpServer): void {
       description: "Update or reschedule an existing Clio calendar entry",
       inputSchema: {
         calendar_entry_id: z.number().int().positive().describe("ID of the calendar entry to update"),
+        expected_etag: z.string().min(1).optional().describe("Version reviewed by the caller; rejects stale edits. A fresh ETag is always sent with the PATCH."),
         summary: z.string().min(1).optional().describe("New event title"),
         start_at: calendarDateTimeSchema.optional().describe("New event start with an explicit offset or Z"),
         end_at: calendarDateTimeSchema.optional().describe("New event end with an explicit offset or Z"),
@@ -269,11 +270,15 @@ export function registerCalendarTools(server: McpServer): void {
         attendee_ids: z.array(z.number().int().positive()).optional().describe("Calendar or contact IDs to add as attendees"),
       },
     },
-    async ({ calendar_entry_id, summary, start_at, end_at, calendar_owner_id, description, all_day, matter_id, location, send_email_notification, attendee_ids }) => {
+    async ({ calendar_entry_id, expected_etag, summary, start_at, end_at, calendar_owner_id, description, all_day, matter_id, location, send_email_notification, attendee_ids }) => {
       if ([summary, start_at, end_at, calendar_owner_id, description, all_day, matter_id, location, send_email_notification, attendee_ids].every((value) => value === undefined)) {
         return { content: [{ type: "text", text: "Error: at least one field to update must be provided" }], isError: true };
       }
       try {
+        const current = (await clioGet(`/calendar_entries/${calendar_entry_id}.json`, { fields: CALENDAR_DETAIL_FIELDS })).data;
+        if (!current?.etag) throw new Error("Cannot update safely: current calendar ETag is unavailable");
+        if (expected_etag !== undefined && expected_etag !== current.etag) throw new Error("Calendar entry changed since review; read and reconcile before updating");
+        if (current.recurrence_rule || current.parent_calendar_entry_id || current.court_rule) throw new Error("This tool updates standalone entries only; recurring or court-rule-linked entries require separate review");
         const body: Record<string, unknown> = {};
         if (summary !== undefined) body.summary = summary;
         if (start_at !== undefined) body.start_at = toUtcIso(start_at);
@@ -289,7 +294,8 @@ export function registerCalendarTools(server: McpServer): void {
         const updated = await clioPatch(
           `/calendar_entries/${calendar_entry_id}.json`,
           { data: body },
-          { fields: CALENDAR_DETAIL_FIELDS }
+          { fields: CALENDAR_DETAIL_FIELDS },
+          { ifMatch: current.etag }
         );
         const entry = updated.data;
         await appendAuditLog({

@@ -1,3 +1,12 @@
+# Tajima local integration update — 2.5.0-tajima.2 (2026-11-02)
+
+- Add recipient notification-method lookup through User expansions and reminder list/get/create/update/delete tools
+- Guard standalone calendar and reminder updates with fresh ETags / If-Match; reject stale reviewed versions and recurring or court-rule calendar updates
+- Verify reminder recipients, prevent popup delivery to another user, retain delivery state and next_delivery_at for asynchronous reconciliation
+- Preserve existing folder-targeted upload and authenticated download features; no OAuth scope or configuration change
+- API contract: https://docs.developers.clio.com/openapi.json and https://docs.developers.clio.com/api-docs/clio-manage/etags/
+- This adds connector capabilities, not a legal deadline engine, shared atomic deduplication, or proof of delivered reminders
+
 # Changelog
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Releases before this file existed are described on the [GitHub Releases](https://github.com/oktopeak/clio-mcp/releases) page.
